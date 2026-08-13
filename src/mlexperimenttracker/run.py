@@ -20,6 +20,13 @@ covered four ways: the context manager, ``sys.excepthook``, signal handlers, and
 with a transform that collapses ``_``, ``-`` and space, so this module emits pure lowercase
 ``snake_case`` and refuses the handful of names that collide with derived statistics.
 
+**Provenance is captured at ``init()`` and can never fail the run.** The manifest — commit,
+uncommitted patch, packages, dataset hashes, environment — is what makes a recorded run
+checkable later rather than merely viewable, so it is on by default; but it is attached to
+somebody's training job, so every path that touches it degrades to a log line. A tracker
+that can kill a training job over a missing git binary is a tracker nobody attaches to a
+job that matters.
+
 Standard library only. A tracker that adds dependencies to a training environment is a
 tracker people uninstall.
 """
@@ -27,6 +34,7 @@ tracker people uninstall.
 from __future__ import annotations
 
 import atexit
+import copy
 import logging
 import math
 import os
@@ -45,6 +53,7 @@ from pathlib import Path
 from types import FrameType, TracebackType
 from typing import Any
 
+from . import provenance as _provenance
 from .contract import (
     ARTIFACTS_FILE,
     CHECKPOINTS_DIR,
@@ -287,6 +296,9 @@ class Run:
         system_metrics: bool = False,
         system_metrics_interval: float = DEFAULT_INTERVAL,
         summary_interval: float = _DEFAULT_SUMMARY_INTERVAL,
+        provenance: bool = True,
+        capture_diff: bool = True,
+        datasets: Sequence[str | os.PathLike[str]] | None = None,
     ) -> None:
         self._storage = storage
         self._project = project
@@ -303,6 +315,10 @@ class Run:
         self._state = RunState.INITIALIZED
         self._finished = False
         self._sampler: SystemSampler | None = None
+        #: The manifest as it exists **on disk**, or ``None`` when capture was disabled,
+        #: failed, or could not be written. Keeping the in-memory copy in step with the
+        #: file is what lets :meth:`log_dataset` amend a manifest rather than invent one.
+        self._manifest: dict[str, Any] | None = None
 
         # Wall clock for what is written, monotonic for what is measured: a duration
         # derived from wall clock goes negative when NTP steps the clock mid-run, and a
@@ -331,6 +347,9 @@ class Run:
 
         if config is not None:
             self._storage.write_json(self._dir / CONFIG_FILE, flatten_config(config))
+
+        if provenance:
+            self._capture_provenance(datasets, capture_diff=capture_diff)
 
         _ACTIVE[id(self)] = self
         logger.info("run %s started in %s", run_id, self._dir)
@@ -373,6 +392,17 @@ class Run:
     @property
     def state(self) -> RunState:
         return self._state
+
+    @property
+    def provenance(self) -> dict[str, Any] | None:
+        """The manifest written to ``provenance.json``, or ``None`` if there is none.
+
+        A copy, because the manifest describes a moment: handing out the live dict would
+        let a caller edit the record of a world that already happened while the file on
+        disk says something else. ``None`` is a normal state — capture disabled, no git
+        binary, an unwritable directory — and never an error.
+        """
+        return None if self._manifest is None else copy.deepcopy(self._manifest)
 
     # ----------------------------------------------------------------------------------
     # Logging
@@ -733,6 +763,110 @@ class Run:
         return sidecar
 
     # ----------------------------------------------------------------------------------
+    # Provenance
+    # ----------------------------------------------------------------------------------
+
+    def log_dataset(
+        self, path: str | os.PathLike[str], *, name: str | None = None
+    ) -> dict[str, Any]:
+        """Hash a file or directory and record it in the manifest. Returns the entry.
+
+        This is the hook that makes "which data produced this model" answerable, so it has
+        to work after ``init()`` and not only at it: the training set is often assembled,
+        downloaded or resampled several lines *after* the run starts, and a manifest that
+        could only be populated before that would record the intent rather than the data.
+
+        The manifest is re-read from disk before the entry is appended rather than being
+        rewritten from the in-memory copy, so a concurrent edit — a second process, a user
+        with an editor — is preserved instead of being overwritten by a stale snapshot.
+        Entries are keyed by ``name`` when one is given and by ``path`` otherwise, and a
+        repeat of the same key **replaces** the earlier entry: two entries claiming the
+        same dataset with different digests are not a history, they are a record no
+        verifier can act on.
+
+        Nothing here raises over the data: an unreadable path returns an entry carrying
+        ``error`` instead of a digest, because a typo in a dataset path must cost the
+        dataset field and never the run. It does raise on being called after ``finish()``,
+        which is a programming error rather than an environmental one.
+        """
+        # Hashed outside the lock. A directory of tens of gigabytes takes minutes, and
+        # holding the run lock for that long would block every `log()` call in the
+        # training loop behind a bookkeeping write.
+        entry = _provenance.hash_path(path)
+        if name is not None:
+            entry["name"] = str(name)
+
+        with self._lock:
+            self._require_live()
+            manifest = self._storage.read_provenance(self._project, self._run_id)
+            if manifest is None:
+                manifest = self._manifest
+            if manifest is None:
+                # No manifest means capture was disabled or failed. Writing one here would
+                # produce a file whose git block is empty for a reason nothing recorded,
+                # which a later `verify` cannot tell apart from "not a repository" — a
+                # worse outcome than an honest absence.
+                logger.warning(
+                    "run %s has no provenance manifest, so dataset %s was hashed but not "
+                    "recorded; pass provenance=True to init() to capture one",
+                    self._run_id,
+                    entry.get("path"),
+                )
+                return entry
+
+            datasets = [item for item in manifest.get("datasets") or [] if isinstance(item, dict)]
+            identity = entry.get("name") or entry.get("path")
+            for index, existing in enumerate(datasets):
+                if (existing.get("name") or existing.get("path")) == identity:
+                    datasets[index] = entry
+                    break
+            else:
+                datasets.append(entry)
+            manifest["datasets"] = datasets
+
+            # `patch=None` leaves any `uncommitted.patch` on disk untouched: this write
+            # amends the manifest, and the patch it names was captured at init().
+            if not self._storage.write_provenance(self._project, self._run_id, manifest, None):
+                logger.warning(
+                    "could not update the provenance manifest for run %s", self._run_id
+                )
+                return entry
+            self._manifest = manifest
+        return entry
+
+    def _capture_provenance(
+        self,
+        datasets: Sequence[str | os.PathLike[str]] | None,
+        *,
+        capture_diff: bool,
+    ) -> None:
+        """Capture the manifest and write it. Swallows everything, deliberately.
+
+        :func:`provenance.capture` already degrades every block it cannot fill, so this
+        ``except`` is for the failure it cannot anticipate — a monkeypatched module, a
+        broken NVML binding that segfaults its way into a Python exception, an OS error
+        raised from a place the capture layer does not guard. The rule is unconditional and
+        this is where it is enforced: **nothing about recording the world may end the run
+        that is being recorded.**
+        """
+        try:
+            entries = [_provenance.hash_path(path) for path in (datasets or ())]
+            manifest, patch = _provenance.capture(capture_diff=capture_diff, datasets=entries)
+            payload = manifest.to_dict()
+            if not self._storage.write_provenance(self._project, self._run_id, payload, patch):
+                logger.warning(
+                    "provenance manifest could not be written for run %s", self._run_id
+                )
+                return
+            self._manifest = payload
+        except Exception:
+            logger.warning(
+                "provenance capture failed for run %s; the run continues without a manifest",
+                self._run_id,
+                exc_info=True,
+            )
+
+    # ----------------------------------------------------------------------------------
     # Lifecycle
     # ----------------------------------------------------------------------------------
 
@@ -884,6 +1018,9 @@ def init(
     system_metrics_interval: float = DEFAULT_INTERVAL,
     summary_interval: float = _DEFAULT_SUMMARY_INTERVAL,
     capture_signals: bool = True,
+    provenance: bool = True,
+    capture_diff: bool = True,
+    datasets: Sequence[str | os.PathLike[str]] | None = None,
 ) -> Run:
     """Start a run: create its directory, write ``metadata.json``, arm the exit hooks.
 
@@ -899,6 +1036,24 @@ def init(
 
     System metrics are off by default. Sampling costs a thread and a whole-file rewrite per
     tick, and a tracker should not spend either without being asked.
+
+    **Provenance is on by default**, and unlike system metrics it is worth the cost: it
+    writes ``provenance.json`` describing the commit, the uncommitted patch, the resolved
+    package versions, the allowlisted environment and the command line — the difference
+    between a run someone can look at and a run someone can check. The capture is taken in
+    the **current working directory**, which is the repository the training script was
+    launched from, and it costs a handful of ``git`` invocations plus one pass over the
+    installed distributions; ``datasets`` adds a full content hash per path, which is the
+    only part that can take minutes and is therefore never implicit. Datasets can also be
+    added later with :meth:`Run.log_dataset`.
+
+    ``capture_diff`` controls the one part of the capture that can leak: the patch is the
+    diff of a dirty working tree, and a dirty working tree is exactly where a half-finished
+    ``.env`` edit or a key pasted in to get one experiment running lives. It is captured by
+    default because a run without it is not reproducible, it is capped and the cap is
+    recorded rather than silent, and it is a separate file so it can be deleted without
+    destroying the record that it existed. Turn it off for a tree you would not paste into
+    a chat window. Set ``provenance=False`` to write nothing at all.
     """
     storage = Storage(storage_path)
     project = _resolve_project(storage, project)
@@ -920,6 +1075,9 @@ def init(
         system_metrics=system_metrics,
         system_metrics_interval=system_metrics_interval,
         summary_interval=summary_interval,
+        provenance=provenance,
+        capture_diff=capture_diff,
+        datasets=datasets,
     )
 
 

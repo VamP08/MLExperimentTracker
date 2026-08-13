@@ -792,7 +792,11 @@ def test_system_metrics_are_off_unless_asked_for(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------------------
 
 
-def test_the_public_surface_is_three_names() -> None:
-    assert met.__all__ == ["Run", "init", "__version__"]
+def test_the_public_surface_stays_small() -> None:
+    """``hash_path`` joined the surface with format 1.1: a dataset digest is worth
+    computing without a run — to check what is on a machine before starting one — and it
+    is the only part of provenance capture a caller has a reason to reach directly."""
+    assert met.__all__ == ["Run", "hash_path", "init", "__version__"]
     assert met.__version__
     assert callable(met.init)
+    assert callable(met.hash_path)
