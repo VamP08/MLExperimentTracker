@@ -35,6 +35,8 @@ from .contract import (
     DEFAULT_STORAGE_DIRNAME,
     METADATA_FILE,
     METRICS_FILE,
+    PATCH_FILE,
+    PROVENANCE_FILE,
     RESERVED_METRIC_KEYS,
     STAT_KEYS,
     STORAGE_ENV_VAR,
@@ -619,7 +621,16 @@ class Storage:
             payload = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False)
         except (TypeError, ValueError) as exc:
             raise StorageError(f"value is not representable as JSON for {path}: {exc}") from exc
+        self.write_bytes(path, payload.encode("utf-8"))
 
+    def write_bytes(self, path: Path, payload: bytes) -> None:
+        """The atomic write underneath :meth:`write_json`, for content that is not JSON.
+
+        Only ``uncommitted.patch`` uses it directly today. It is bytes rather than text
+        because a patch is bytes: ``git diff --binary`` emits literal binary hunks, and
+        decoding them to run them back through an encoder would corrupt exactly the
+        patches that most need to survive.
+        """
         directory = path.parent
         try:
             directory.mkdir(parents=True, exist_ok=True)
@@ -627,7 +638,7 @@ class Storage:
                 dir=str(directory), prefix=f".{path.name}.", suffix=".tmp"
             )
             try:
-                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                with os.fdopen(fd, "wb") as handle:
                     handle.write(payload)
                     handle.flush()
                     os.fsync(handle.fileno())
@@ -680,6 +691,55 @@ class Storage:
                 handle.flush()
         except OSError as exc:
             raise StorageError(f"could not append to {path}: {exc}") from exc
+
+    def write_provenance(
+        self, project: str, run_id: str, manifest: dict, patch: bytes | None
+    ) -> bool:
+        """Write ``provenance.json`` and, when there is one, ``uncommitted.patch``.
+
+        The patch goes down **first**. The manifest names it and carries its hash, so
+        writing the manifest first would leave a window — one crash wide — in which a run
+        advertises a patch that is not there, and a verifier cannot tell that from a patch
+        somebody deleted. In the other order the worst case is an orphaned patch file,
+        which reads as absent because nothing looks for a patch except through the
+        manifest.
+
+        Returns ``False`` rather than raising for an unaddressable name or a failed write:
+        this is called from the capture path, and the whole point of that path is that a
+        provenance failure never reaches the training run.
+        """
+        run_dir = self.run_path(project, run_id)
+        if run_dir is None:
+            return False
+        try:
+            if patch:
+                self.write_bytes(run_dir / PATCH_FILE, patch)
+            self.write_json(run_dir / PROVENANCE_FILE, manifest)
+        except StorageError:
+            return False
+        return True
+
+    def read_provenance(self, project: str, run_id: str) -> dict | None:
+        """The manifest, or ``None`` for absent, malformed or unaddressable.
+
+        Absence is the normal case for every run written before format 1.1 and for every
+        run whose capture failed, so it is not an error and never logged as one.
+        """
+        run_dir = self.run_path(project, run_id)
+        if run_dir is None:
+            return None
+        value = self._read_json_value(run_dir / PROVENANCE_FILE)
+        return value if isinstance(value, dict) else None
+
+    def read_patch(self, project: str, run_id: str) -> bytes | None:
+        """The raw patch bytes, or ``None``. Never decoded — see :meth:`write_bytes`."""
+        run_dir = self.run_path(project, run_id)
+        if run_dir is None:
+            return None
+        try:
+            return (run_dir / PATCH_FILE).read_bytes()
+        except (OSError, ValueError):
+            return None
 
     def update_run_tags(self, project: str, run_id: str, tags: list[str]) -> bool:
         """Read, merge, write. A blind overwrite would destroy tags a user edited in the

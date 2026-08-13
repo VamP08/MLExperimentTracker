@@ -75,6 +75,7 @@ _SCRIPT = textwrap.dedent(
 
     import mlexperimenttracker as met
     from mlexperimenttracker.storage import Storage
+    from mlexperimenttracker import provenance
 
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
@@ -101,6 +102,16 @@ _SCRIPT = textwrap.dedent(
         assert len(storage.read_metrics(project, run_id)) == 2, "expected loss and accuracy"
         assert len(storage.read_artifacts(project, run_id)) == 1
         assert len(storage.read_checkpoints(project, run_id)) == 1
+
+        # Provenance capture is the newest place a convenience dependency could creep in:
+        # it wants a git library, a hashing helper and an NVML binding, and all three are
+        # stdlib or optional here. pynvml is blocked above, so this also drives the
+        # GPU-absent path.
+        manifest, patch = provenance.capture(str(root))
+        assert manifest.python["version"], "python block is empty"
+        assert isinstance(manifest.hardware["gpus"], list)
+        assert storage.write_provenance(project, run_id, manifest.to_dict(), patch)
+        assert storage.read_provenance(project, run_id)["captured_at"]
 
     print("ZERO_DEPENDENCY_OK")
     """

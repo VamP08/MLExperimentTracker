@@ -22,10 +22,21 @@ from enum import Enum
 
 #: Written into ``metadata.json``. The recovered contract carried no version at all,
 #: which left a reader unable to tell what it was reading and a writer unable to declare
-#: what it wrote. Absence therefore means "the original, unversioned format"; this is the
-#: first version that says so out loud. The current reader ignores unknown keys, so
+#: what it wrote. Absence therefore means "the original, unversioned format"; 1.0 was the
+#: first version that said so out loud. The current reader ignores unknown keys, so
 #: adding it costs nothing on the read side and is only expensive to add late.
-FORMAT_VERSION: str = "1.0"
+#:
+#: **1.1 (2026-08-13) adds the provenance manifest** — ``provenance.json`` and its
+#: ``uncommitted.patch`` sibling. The bump is the minor half of the pair precisely because
+#: nothing else changed: both files are new, both are optional, and no existing file gained
+#: a required field. So a 1.0 reader handed a 1.1 directory reads it correctly and sees
+#: exactly what it saw before — two files it does not open, in a directory format it
+#: already understands — and a 1.1 reader handed a 1.0 directory finds no manifest, which
+#: is the same state as a 1.1 run whose capture failed and is therefore already a case it
+#: has to handle. The major half stays at 1 until something a reader depends on changes
+#: shape, which is the distinction a bare counter could not express and the reason this is
+#: a string.
+FORMAT_VERSION: str = "1.1"
 
 #: Consulted before the home-directory default, and named identically to the variable the
 #: Express server reads, so both halves of the product resolve the same root.
@@ -45,6 +56,18 @@ ARTIFACTS_FILE: str = "artifacts.jsonl"
 SYSTEM_METRICS_FILE: str = "system_metrics.json"
 CHECKPOINTS_DIR: str = "checkpoints"
 ARTIFACTS_DIR: str = "artifacts"
+
+#: The reproducibility manifest (format 1.1). Optional: a run whose capture failed, or
+#: whose writer predates 1.1, simply has no such file, and every reader must treat absence
+#: as "not recorded" rather than as "nothing had changed".
+PROVENANCE_FILE: str = "provenance.json"
+
+#: The uncommitted diff, referenced by ``provenance.json``'s ``git.diff_file``. A separate
+#: file rather than a string inside the manifest for two reasons: a patch is megabytes of
+#: text that would make the manifest unreadable and unparseable at a glance, and keeping it
+#: separate means a user can delete the patch — which is the one part of the capture that
+#: can hold a secret — without destroying the record that it existed.
+PATCH_FILE: str = "uncommitted.patch"
 
 
 class RunState(str, Enum):
