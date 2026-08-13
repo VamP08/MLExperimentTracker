@@ -9,7 +9,7 @@ One install, one command:
 ```bash
 pip install -e ".[server]"     # not on PyPI yet; install from a clone
 mlexp demo                     # generate example runs
-mlexp ui                       # dashboard at http://127.0.0.1:8000
+mlexp ui                       # dashboard at http://127.0.0.1:5000
 ```
 
 ## Tracking a run
@@ -66,15 +66,41 @@ tested. Parts of the dashboard are not wired up.**
 | Area | State |
 |---|---|
 | Python SDK — init, log, artifacts, checkpoints, crash handling | Working |
-| Storage format, versioned as `format_version` 1.0 | Working |
-| API server, CLI (`mlexp ui / demo / ls / show / path`) | Working |
+| Storage format, versioned as `format_version` 1.1 | Working |
+| API server, CLI (`mlexp ui / demo / ls / show / path / provenance / verify / replay`) | Working |
+| Provenance capture — commit, uncommitted diff, packages, dataset hashes, environment | Working |
+| `mlexp verify` — drift against the recorded world; `mlexp replay` — rebuild the commit | Working |
 | Dashboard: experiments, runs, overview, params, metrics, system metrics, checkpoints, artifacts | Working |
 | Run comparison, ROC curve, confusion matrix, feature importance, gradient view | Components written, not routed |
 | Logs tab, both Settings pages | Placeholder UI, not connected |
 | Continuous integration | Not set up |
 
-311 tests pass, including a suite that runs the previous Node backend side by side and
+430 tests pass, including a suite that runs the previous Node backend side by side and
 diffs its JSON against this one route by route.
+
+### Provenance, verify and replay
+
+`met.init()` records the git commit, the **uncommitted diff** as a patch file, the resolved
+package versions, a content hash of any dataset you name, and the environment — into
+`provenance.json` beside the run. Capture never fails the training run: anything it cannot
+determine is written as a recorded reason.
+
+```bash
+mlexp provenance <run_id>      # what the run recorded about the world it ran in
+mlexp verify <run_id>          # what has changed since — exit 0 ok, 1 drifted, 2 unverifiable
+mlexp replay <run_id> --into ../rebuild
+```
+
+`verify` answers in three states, not two: a check reports drift only when it asked the
+question and got a different answer, so a missing `git` binary is `unverifiable` rather than
+a false accusation. `replay` uses `git worktree add` into a directory you name — it never
+runs `checkout`, `reset` or `stash`, so your working tree is not touched.
+
+What it does **not** restore: the package set is resolved versions rather than a lockfile,
+datasets are recorded and not restored, untracked files are named and not restored, and
+hardware, driver and kernel nondeterminism are outside what any manifest can capture.
+`uncommitted.patch` is a diff of your working tree, so treat it as sensitive — pass
+`capture_diff=False` for a tree you would not paste into a chat window.
 
 ## Storage layout
 
@@ -89,6 +115,8 @@ $EXPERIMENT_STORAGE_PATH/          # default: ~/.experiment_tracker
       artifacts.jsonl              # one artifact record per line
       system_metrics.json          # array of resource samples
       checkpoints/*.json           # checkpoint sidecars
+      provenance.json              # commit, packages, dataset hashes, environment
+      uncommitted.patch            # the working-tree diff — may contain secrets
 ```
 
 Only `metadata.json` is required; anything else missing degrades one part of the UI rather
