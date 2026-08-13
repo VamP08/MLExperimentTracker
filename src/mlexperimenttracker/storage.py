@@ -50,6 +50,11 @@ from .contract import (
 
 __all__ = ["Storage", "StorageError"]
 
+#: Per-project sidecar written by ``PATCH /api/experiment/{id}``. It sits beside the run
+#: directories rather than inside one, which is why it is named here and not in
+#: ``contract``: no run owns it, and a producer must never write it (DATA-CONTRACT §2).
+PROJECT_METADATA_FILE = "project_metadata.json"
+
 
 class StorageError(Exception):
     """Raised only by the writing half. Reads degrade instead of raising."""
@@ -263,6 +268,29 @@ class Storage:
             return None
         return self._build_experiment(project)
 
+    def _read_project_description(self, project: str) -> str:
+        """The description a user set through ``PATCH /api/experiment/{id}``, or ``""``.
+
+        This is the read half of GAPS M3. The endpoint has always written
+        ``project_metadata.json`` and nothing has ever opened it, so an edit appeared to
+        save and reverted on the next load — the derived description reasserting itself,
+        silently, which is harder to diagnose than an error would have been.
+
+        Everything that is not a non-empty string is ``""`` and therefore falls through to
+        the derivation: a missing file, a file another tool wrote as an array, a truncated
+        one, a ``description`` that is a number. An explicitly emptied description falls
+        through too, which is deliberate — clearing the box asks for the default back, and
+        an experiment whose description renders as nothing looks like a broken page.
+        """
+        project_dir = self.project_path(project)
+        if project_dir is None:
+            return ""
+        data = self._read_json_value(project_dir / PROJECT_METADATA_FILE)
+        if not isinstance(data, dict):
+            return ""
+        description = data.get("description")
+        return description if isinstance(description, str) else ""
+
     def list_experiments(self) -> list[dict]:
         return [self._build_experiment(p) for p in self.list_projects()]
 
@@ -286,6 +314,10 @@ class Storage:
         mapping, so ``initialized`` and ``interrupted`` fall into no bucket at all. Both
         are reader defects. They are reproduced because the frontend's numbers have to
         keep adding up the same way, and fixing them belongs with a frontend change.
+
+        The description is the one place this deliberately stops reproducing the reader:
+        a description stored in ``project_metadata.json`` wins over the derivation from
+        the first run's notes. See :meth:`_read_project_description`.
         """
         run_ids = self.list_runs(project)
         total_runs = len(run_ids)
@@ -344,6 +376,10 @@ class Storage:
             duration = summary.get("duration") if summary else None
             if _is_number(duration):
                 total_duration += float(duration)
+
+        # GAPS M3: what the user typed beats what the runs imply. Read after the loop so
+        # an unreadable sidecar costs the stored description and nothing else.
+        description = self._read_project_description(project) or description
 
         success_rate = _js_round(completed_runs / total_runs * 100) if total_runs > 0 else 0
         avg_duration = total_duration / total_runs if total_runs > 0 else 0
@@ -783,19 +819,21 @@ class Storage:
         return True
 
     def update_experiment_description(self, project: str, name: str, description: str) -> bool:
-        """Writes ``project_metadata.json``, which no reader opens.
+        """Writes ``project_metadata.json``, which :meth:`_read_project_description` reads.
 
-        Kept for interface parity — the endpoint exists — but the description a user sets
-        here will not survive a reload, because the displayed experiment description is
-        derived from the first run with non-empty notes. Unlike the reader, this refuses
-        to create the project directory as a side effect of a description edit: a write
-        that materialises a project nobody asked for is how the original became an
-        arbitrary-directory-creation bug.
+        The pair is the fix for GAPS M3: this file was written by the endpoint and opened
+        by nothing, so an edit reverted on reload. Read-modify-write rather than
+        overwrite, for the same reason as :meth:`update_run_tags` — a key some later
+        version adds must survive a description edit made by this one.
+
+        Unlike the reader, this refuses to create the project directory as a side effect
+        of a description edit: a write that materialises a project nobody asked for is how
+        the original became an arbitrary-directory-creation bug.
         """
         project_dir = self.project_path(project)
         if project_dir is None or not project_dir.is_dir():
             return False
-        path = project_dir / "project_metadata.json"
+        path = project_dir / PROJECT_METADATA_FILE
         data = self._read_json_value(path)
         if not isinstance(data, dict):
             data = {}

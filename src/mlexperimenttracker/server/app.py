@@ -357,10 +357,12 @@ def _register_experiments(app: FastAPI, store: Storage) -> None:
 
     @app.patch("/api/experiment/{experiment_id}", response_model=None)
     async def update_experiment(experiment_id: str, request: Request) -> dict:
-        """Writes ``project_metadata.json``, which no reader opens — the description the
-        UI displays is derived from the first run with non-empty notes, so this edit
-        appears to save and reverts on reload. The endpoint is kept because the frontend
-        calls it; the defect is the reader's."""
+        """Writes ``project_metadata.json``, and the experiment read paths open it.
+
+        Until GAPS M3 was fixed nothing did, so this edit appeared to save and reverted on
+        the next load. A stored description now outranks the one derived from the first
+        run's notes; clearing it restores the derivation.
+        """
         body = await _body(request)
         description = _string_field(body, "description")
         updated = await _read(

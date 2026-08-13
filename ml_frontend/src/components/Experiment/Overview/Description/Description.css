@@ -111,3 +111,18 @@
   border-color: var(--error);
   color: var(--error);
 }
+
+/* GAPS N20: the inline replacement for the alert() this component used to
+   raise on a failed save. Prefixed because `.description-title`, `.save-button`
+   and `.cancel-button` above are all global names shared with other files. */
+.experiment-description-error {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--error);
+}
+
+.save-button:disabled,
+.cancel-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -720,8 +720,8 @@ def test_update_experiment_description_will_not_create_a_project(storage: Storag
     (storage.root / PROJECT).mkdir(parents=True)
     assert storage.update_experiment_description(PROJECT, PROJECT, "hi") is True
     assert (storage.root / PROJECT / "project_metadata.json").exists()
-    # ...and no reader ever opens it, so the description does not survive a reload.
-    assert storage.read_experiment(PROJECT)["description"] == f"Experiment: {PROJECT}"
+    # ...and the experiment read paths open it, so the edit survives a reload (GAPS M3).
+    assert storage.read_experiment(PROJECT)["description"] == "hi"
 
 
 def test_write_json_is_atomic_and_leaves_no_debris(storage: Storage) -> None:

@@ -29,6 +29,11 @@ a decision that should have to be re-taken to be undone:
 3. Malformed input degrades instead of 500ing the page. A non-array `tags` or a run with
    no `created_at` took the whole dashboard down for every project.
 4. A non-finite metric costs its own value, not its entire row.
+5. A stored experiment description is read back. Express wrote `project_metadata.json` on
+   `PATCH /api/experiment/{id}` and opened it nowhere, so the edit reverted on the next
+   load (GAPS M3); here the experiment read paths prefer it over the description derived
+   from the first run's notes. The live diff below is unaffected: no producer writes that
+   file, so it exists only in a tree where somebody has already edited a description.
 """
 
 from __future__ import annotations
@@ -542,6 +547,32 @@ def test_error_bodies_do_not_leak_the_storage_path(client: TestClient, root: Pat
         assert str(root) not in response.text
         assert "Traceback" not in response.text
         assert set(response.json()) == {"message"}
+
+
+# --------------------------------------------------------------------------------------
+# Deliberate divergence 5 — a stored experiment description is read back
+# --------------------------------------------------------------------------------------
+
+
+def test_a_stored_experiment_description_outranks_the_derivation(client: TestClient) -> None:
+    """Express wrote this file and read it nowhere, so the description a user typed lasted
+    until the next page load and was then replaced by the first run's notes — a silent
+    revert, with no error to report. Reading it back is the fix (GAPS M3); clearing the
+    box restores the derivation, because an experiment with no description at all reads as
+    a broken page rather than as a deliberate blank."""
+    assert client.get(f"/api/experiment/{PROJECT}").json()["description"] == (
+        f"Experiment: {PROJECT}"
+    )
+
+    assert client.patch(
+        f"/api/experiment/{PROJECT}", json={"description": "churn baseline"}
+    ).status_code == 200
+    assert client.get(f"/api/experiment/{PROJECT}").json()["description"] == "churn baseline"
+
+    client.patch(f"/api/experiment/{PROJECT}", json={"description": ""})
+    assert client.get(f"/api/experiment/{PROJECT}").json()["description"] == (
+        f"Experiment: {PROJECT}"
+    )
 
 
 # --------------------------------------------------------------------------------------
