@@ -1,0 +1,117 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mlexperimenttracker"
+version = "0.1.0"
+description = "A local-first ML experiment tracker: a tracking SDK and the dashboard that reads it, in one package."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["machine-learning", "experiment-tracking", "mlops", "local-first", "dashboard"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+
+# Deliberately empty, and the most load-bearing line in this file. The tracking half of
+# this package goes into somebody else's training script, where every added dependency is
+# a version constraint they did not ask for and a possible conflict with their framework.
+# Writing a run directory needs nothing beyond the standard library, so it costs nothing.
+# Everything below is opt-in: the server, the resource sampler and the test tooling are
+# extras precisely because none of them is needed to record an experiment.
+dependencies = []
+
+[project.optional-dependencies]
+# Reading the runs back: the dashboard and the API it talks to.
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+# CPU, memory and GPU sampling. Both are imported lazily and their absence degrades
+# system_metrics.json to the fields that can be had for free, rather than failing a run.
+system = [
+    "psutil>=5.9",
+    "nvidia-ml-py>=12.535",
+]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+all = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "psutil>=5.9",
+    "nvidia-ml-py>=12.535",
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+mlexp = "mlexperimenttracker.cli:main"
+
+# --------------------------------------------------------------------------------------
+# Build
+# --------------------------------------------------------------------------------------
+
+# The built React bundle is a build artifact, not source: it is produced by
+# scripts/build_ui.py and gitignored, so the default "ship what is tracked" rule would
+# leave the distribution with a server and no UI. `artifacts` is the escape hatch for
+# exactly this case — patterns that are included even when version control ignores them —
+# and it applies to the sdist and the wheel alike. It matches nothing in a fresh clone,
+# which is intended: a source build without a UI is a valid, working SDK install.
+[tool.hatch.build]
+artifacts = ["src/mlexperimenttracker/server/static/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mlexperimenttracker"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/scripts",
+    "/README.md",
+    "/LICENSE",
+]
+
+# --------------------------------------------------------------------------------------
+# Tooling
+# --------------------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+# Ruff's defaults plus import sorting and the bugbear checks. Deliberately not the
+# stylistic families: this repository is prose-heavy on purpose, and a linter that argues
+# about how a sentence is wrapped inside a docstring is a linter people stop reading.
+# E501 stays off, as it is by default — line length is the formatter's job.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Deliberately empty: a default of "-q" here combines with a command-line "-q" into "-qq",
+# which suppresses the "N passed" summary line and makes a run look like it did nothing.
+addopts = ""
+markers = [
+    "slow: spawns a subprocess or an external server; deselect with -m 'not slow'",
+]
