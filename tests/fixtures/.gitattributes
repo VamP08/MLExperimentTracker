@@ -1,0 +1,4 @@
+# The fixture tree is compared byte for byte against a freshly generated one, so no file
+# here may be line-ending normalised on checkout. A CRLF conversion would make the whole
+# suite fail on Windows and pass on Linux, for a reason nobody would find quickly.
+* -text

@@ -1,0 +1,36 @@
+{
+  "state": "interrupted",
+  "duration": 104.7,
+  "end_time": "2026-08-05T21:15:48.182+05:30",
+  "notes": "",
+  "metrics_summary": {
+    "loss": {
+      "latest": 0.4169,
+      "mean": 0.816712,
+      "min": 0.4169,
+      "max": 1.5888,
+      "stddev": 0.408523
+    },
+    "accuracy": {
+      "latest": 0.855,
+      "mean": 0.6991,
+      "min": 0.3974,
+      "max": 0.855,
+      "stddev": 0.152135
+    },
+    "val_loss": {
+      "latest": 0.4405,
+      "mean": 0.6475,
+      "min": 0.4405,
+      "max": 0.8545,
+      "stddev": 0.207
+    },
+    "val_accuracy": {
+      "latest": 0.8678,
+      "mean": 0.78355,
+      "min": 0.6993,
+      "max": 0.8678,
+      "stddev": 0.08425
+    }
+  }
+}

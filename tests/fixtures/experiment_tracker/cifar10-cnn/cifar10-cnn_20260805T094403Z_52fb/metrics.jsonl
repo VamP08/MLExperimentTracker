@@ -1,0 +1,7 @@
+{"step": 88, "timestamp": 21.1, "absolute_timestamp": 1785923064.58, "loss": 1.8175, "accuracy": 0.3484}
+{"step": 176, "timestamp": 30.7, "absolute_timestamp": 1785923074.18, "loss": 1.5128, "accuracy": 0.4217}
+{"step": 263, "timestamp": 40.4, "absolute_timestamp": 1785923083.88, "loss": 2.3172, "accuracy": 0.2901}
+{"step": 351, "timestamp": 50.0, "absolute_timestamp": 1785923093.48, "loss": 4.4876, "accuracy": 0.1981, "val_loss": 3.9931, "val_accuracy": 0.1728}
+{"step": 439, "timestamp": 59.7, "absolute_timestamp": 1785923103.18, "loss": 6.4396, "accuracy": 0.1489}
+{"step": 526, "timestamp": 69.3, "absolute_timestamp": 1785923112.78, "loss": 9.8203, "accuracy": 0.1583}
+{"step": 614, "timestamp": 79.0, "absolute_timestamp": 1785923122.48, "loss": 15.8749, "accuracy": 0.1395}

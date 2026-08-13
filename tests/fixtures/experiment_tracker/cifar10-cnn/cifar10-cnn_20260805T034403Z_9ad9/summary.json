@@ -1,0 +1,36 @@
+{
+  "state": "completed",
+  "duration": 131.4,
+  "end_time": "2026-08-05T09:16:14.882+05:30",
+  "notes": "CIFAR-10 sweep: ResNet-18 trained from scratch, step LR schedule, crop and flip augmentation.",
+  "metrics_summary": {
+    "loss": {
+      "latest": 0.2969,
+      "mean": 0.52795,
+      "min": 0.2814,
+      "max": 1.5609,
+      "stddev": 0.371569
+    },
+    "accuracy": {
+      "latest": 0.9266,
+      "mean": 0.82505,
+      "min": 0.4402,
+      "max": 0.9365,
+      "stddev": 0.147201
+    },
+    "val_loss": {
+      "latest": 0.4127,
+      "mean": 0.436267,
+      "min": 0.3372,
+      "max": 0.5589,
+      "stddev": 0.09203
+    },
+    "val_accuracy": {
+      "latest": 0.8302,
+      "mean": 0.832833,
+      "min": 0.7968,
+      "max": 0.8715,
+      "stddev": 0.030553
+    }
+  }
+}

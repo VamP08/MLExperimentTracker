@@ -1,0 +1,17 @@
+{
+  "format_version": "1.0",
+  "created_at": "2026-08-05T21:14:03.482+05:30",
+  "name": "resnet18-bs64-lr2e-3",
+  "state": "running",
+  "tags": [
+    "vision",
+    "cifar10",
+    "resnet18",
+    "sweep",
+    "preempted"
+  ],
+  "notes": "",
+  "platform": "Linux-6.8.0-45-generic-x86_64-with-glibc2.39",
+  "python_version": "3.12.4",
+  "working_directory": "/srv/experiments/vision/cifar10"
+}

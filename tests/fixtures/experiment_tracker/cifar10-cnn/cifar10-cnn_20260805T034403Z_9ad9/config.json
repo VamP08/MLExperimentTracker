@@ -1,0 +1,20 @@
+{
+  "learning_rate": 0.003,
+  "batch_size": 128,
+  "epochs": 3,
+  "optimizer": "sgd_momentum",
+  "weight_decay": 0.0005,
+  "lr_schedule": "step",
+  "dropout": 0.1,
+  "dataset": "cifar10",
+  "model": "resnet18",
+  "num_classes": 10,
+  "seed": 8663,
+  "device": "cuda:0",
+  "mixed_precision": true,
+  "gradient_clip": 1.0,
+  "early_stopping": null,
+  "augmentation": "random_crop+hflip",
+  "image_size": 32,
+  "num_workers": 8
+}

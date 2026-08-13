@@ -1,0 +1,36 @@
+{
+  "state": "completed",
+  "duration": 373.0,
+  "end_time": "2026-08-06T03:20:16.482+05:30",
+  "notes": "AG News sweep: DistilBERT fine-tuning, 128-token windows, linear warmup then decay.",
+  "metrics_summary": {
+    "loss": {
+      "latest": 0.1579,
+      "mean": 0.317588,
+      "min": 0.1552,
+      "max": 0.7526,
+      "stddev": 0.206054
+    },
+    "accuracy": {
+      "latest": 0.9153,
+      "mean": 0.865912,
+      "min": 0.6458,
+      "max": 0.982,
+      "stddev": 0.100922
+    },
+    "val_loss": {
+      "latest": 0.282,
+      "mean": 0.26135,
+      "min": 0.2407,
+      "max": 0.282,
+      "stddev": 0.02065
+    },
+    "val_accuracy": {
+      "latest": 0.8771,
+      "mean": 0.88775,
+      "min": 0.8771,
+      "max": 0.8984,
+      "stddev": 0.01065
+    }
+  }
+}

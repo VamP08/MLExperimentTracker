@@ -1,0 +1,16 @@
+{
+  "format_version": "1.0",
+  "created_at": "2026-08-06T03:14:03.482+05:30",
+  "name": "distilbert-bs32-lr3e-5",
+  "state": "running",
+  "tags": [
+    "nlp",
+    "ag-news",
+    "distilbert",
+    "baseline"
+  ],
+  "notes": "AG News sweep: DistilBERT fine-tuning, 128-token windows, linear warmup then decay.",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python_version": "3.12.4",
+  "working_directory": "D:/experiments/text/agnews"
+}
