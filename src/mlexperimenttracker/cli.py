@@ -23,6 +23,8 @@ import importlib.util
 import inspect
 import json
 import os
+import shlex
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -30,12 +32,30 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from .contract import METADATA_FILE, STORAGE_ENV_VAR, SUMMARY_FILE, format_duration, map_state
+from .contract import (
+    METADATA_FILE,
+    PATCH_FILE,
+    PROVENANCE_FILE,
+    STORAGE_ENV_VAR,
+    SUMMARY_FILE,
+    format_duration,
+    map_state,
+)
 from .storage import Storage, StorageError
 
 __all__ = ["main"]
 
 PROGRAM = "mlexp"
+
+#: ``mlexp verify`` returns the verdict as a status code, so a build step can gate on it
+#: without parsing anything. ``DRIFTED`` shares 1 with the generic failure exit used by
+#: every other command; the two are told apart by where the output went — a verdict is
+#: printed to stdout, a failure is one line on stderr and nothing on stdout.
+VERIFY_EXIT_CODES: dict[str, int] = {
+    "reproducible": 0,
+    "drifted": 1,
+    "unverifiable": 2,
+}
 
 #: Loopback by default because there is no authentication anywhere in the product and
 #: three endpoints write to disk — the trust boundary is the interface, not a login form.
@@ -129,6 +149,88 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     show.add_argument("run_id", metavar="<run_id>", help="run ID, unique across all experiments")
     show.set_defaults(handler=_cmd_show)
+
+    provenance = subcommands.add_parser(
+        "provenance",
+        help="print what a run recorded about the world it ran in",
+        description=(
+            "Print the reproducibility manifest a run captured: the commit, the "
+            "uncommitted diff, the interpreter, the packages and the dataset digests. "
+            "Runs written before format 1.1, and runs whose capture failed, have none."
+        ),
+    )
+    provenance.add_argument("run_id", metavar="<run_id>", help="run ID, unique across all experiments")
+    provenance_output = provenance.add_mutually_exclusive_group()
+    provenance_output.add_argument(
+        "--json", action="store_true", help=f"print {PROVENANCE_FILE} verbatim"
+    )
+    provenance_output.add_argument(
+        "--patch",
+        action="store_true",
+        help=f"write the raw {PATCH_FILE} to stdout, for piping into `git apply`",
+    )
+    provenance.set_defaults(handler=_cmd_provenance)
+
+    verify = subcommands.add_parser(
+        "verify",
+        help="check whether a run's recorded world still matches this one",
+        description=(
+            "Re-ask every question the manifest answered at capture: is the commit here, "
+            "is it checked out, is the uncommitted work intact, is the interpreter the "
+            "same, are the packages the same, is the data the same bytes."
+        ),
+        epilog=(
+            "exit status:\n"
+            "  0  reproducible — every check answered, nothing differs\n"
+            "  1  drifted      — at least one established difference\n"
+            "  2  unverifiable — nothing differs, but a question went unanswered\n\n"
+            "A failure that stops verification from starting at all also exits 1, and\n"
+            "prints one line to stderr instead of a report to stdout."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    verify.add_argument("run_id", metavar="<run_id>", help="run ID, unique across all experiments")
+    verify.add_argument("--json", action="store_true", help="print the report as JSON")
+    verify.add_argument(
+        "--in",
+        dest="directory",
+        metavar="DIR",
+        help="verify against this working tree instead of the one the run recorded",
+    )
+    verify.add_argument(
+        "--no-rehash",
+        action="store_true",
+        help="skip re-reading the datasets, which is the slow half on a large corpus",
+    )
+    verify.set_defaults(handler=_cmd_verify)
+
+    replay = subcommands.add_parser(
+        "replay",
+        help="reconstruct the code a run was executed from",
+        description=(
+            "Without --into, print the steps that would reconstruct the run and change "
+            "nothing. With --into, check the recorded commit out into that directory as a "
+            "git worktree and apply the recorded patch inside it. Your working tree is "
+            "never touched in either case."
+        ),
+    )
+    replay.add_argument("run_id", metavar="<run_id>", help="run ID, unique across all experiments")
+    replay.add_argument(
+        "--into",
+        metavar="DIR",
+        help="materialise the worktree here; the directory must be empty or absent",
+    )
+    replay.add_argument(
+        "--script",
+        metavar="FILE",
+        help="also write the plan as a shell transcript to this file",
+    )
+    replay.add_argument(
+        "--no-patch",
+        action="store_true",
+        help="check the commit out without the uncommitted changes on top of it",
+    )
+    replay.set_defaults(handler=_cmd_replay)
 
     demo = subcommands.add_parser(
         "demo",
@@ -282,12 +384,9 @@ def _run_row(storage: Storage, project: str, run_id: str) -> list[str]:
 
 def _cmd_show(args: argparse.Namespace) -> int:
     storage = Storage()
-    located = storage.find_run(args.run_id)
+    located = _locate(storage, args.run_id)
     if located is None:
-        return _fail(
-            f"no run {args.run_id!r} under {storage.root}. "
-            f"Run `{PROGRAM} ls --project <experiment>` to see the run IDs."
-        )
+        return 1
 
     project, run_id = located
     run = storage.read_run(project, run_id)
@@ -323,6 +422,146 @@ def _cmd_show(args: argparse.Namespace) -> int:
     print(f"  {_count(run.get('artifactsCount', 0), 'artifact')}")
     print(f"  {_count(len(run.get('checkpoints') or []), 'checkpoint')}")
     print(f"  {_count(_system_sample_count(run.get('systemMetrics')), 'system sample')}")
+    return 0
+
+
+# --------------------------------------------------------------------------------------
+# Provenance, verification and replay
+#
+# The three modules behind these commands are imported inside the handler rather than at
+# module scope. `verify` and `replay` each pull in subprocess, hashlib and platform work
+# that `mlexp path` has no use for, and a slow --help is the first thing a user meets.
+# --------------------------------------------------------------------------------------
+
+
+def _cmd_provenance(args: argparse.Namespace) -> int:
+    """Print the manifest, or hand the patch to another program.
+
+    ``--patch`` writes the bytes to stdout unaltered — no trailing newline added, no
+    re-encoding — because the only useful thing to do with it is pipe it into ``git apply``,
+    and a patch that has been through a text handle is a patch that no longer applies.
+    """
+    storage = Storage()
+    located = _locate(storage, args.run_id)
+    if located is None:
+        return 1
+    project, run_id = located
+
+    manifest = storage.read_provenance(project, run_id)
+    if manifest is None:
+        return _fail(
+            f"{project}/{run_id} has no {PROVENANCE_FILE}. Either it was recorded before "
+            "format 1.1, or capture failed and the run was written anyway — which is by "
+            "design: a provenance failure never stops a training run."
+        )
+
+    if args.patch:
+        return _dump_patch(storage, project, run_id, manifest)
+    if args.json:
+        print(json.dumps(manifest, indent=2, ensure_ascii=False))
+        return 0
+    _print_provenance(project, run_id, manifest)
+    return 0
+
+
+def _dump_patch(storage: Storage, project: str, run_id: str, manifest: dict) -> int:
+    git = manifest.get("git") if isinstance(manifest.get("git"), dict) else {}
+    if not git.get("diff_file"):
+        return _fail(
+            f"{project}/{run_id} recorded no patch. The tree was clean at capture, or "
+            "capture_diff was off."
+        )
+    patch = storage.read_patch(project, run_id)
+    if patch is None:
+        return _fail(
+            f"the manifest names {git.get('diff_file')} but the file is not in the run "
+            "directory. The record is incomplete — somebody deleted it, which is a "
+            "supported thing to do to a file that can hold a secret."
+        )
+    if git.get("diff_truncated"):
+        _warn(
+            f"this patch was cut at {git.get('diff_bytes')} bytes by the capture limit. "
+            "It is evidence of what was uncommitted, not something that will apply."
+        )
+    sys.stdout.flush()
+    sys.stdout.buffer.write(patch)
+    sys.stdout.buffer.flush()
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    storage = Storage()
+    located = _locate(storage, args.run_id)
+    if located is None:
+        return 1
+    project, run_id = located
+
+    module = _load_optional(f"{__package__}.verify")
+    if module is None:
+        return _fail("verification is not available in this installation.")
+
+    report = module.verify(
+        storage,
+        project,
+        run_id,
+        cwd=args.directory,
+        rehash_datasets=not args.no_rehash,
+    )
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        _print_report(report.to_dict())
+    return VERIFY_EXIT_CODES.get(report.verdict.value, 2)
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    """Print the plan, or build the worktree.
+
+    ``--into`` is the only flag that writes anything, and it is spelled as a directory the
+    user names rather than defaulted to one this command invents: a command that creates a
+    checkout somewhere of its own choosing is a command people run once.
+    """
+    storage = Storage()
+    located = _locate(storage, args.run_id)
+    if located is None:
+        return 1
+    project, run_id = located
+
+    module = _load_optional(f"{__package__}.replay")
+    if module is None:
+        return _fail("replay is not available in this installation.")
+
+    if args.into is None:
+        plan = module.plan(storage, project, run_id)
+        _print_plan(plan.to_dict(), materialised=None)
+        return _write_script(storage, args.script, plan)
+
+    target = Path(args.into).expanduser()
+    try:
+        plan = module.materialise(
+            storage, project, run_id, target, apply_patch=not args.no_patch
+        )
+    except module.ReplayError as exc:
+        # Every one of these is raised before anything is written, so "nothing happened"
+        # is a promise the message can make.
+        return _fail(f"{exc}\n\nNothing was created and no repository was modified.")
+
+    _print_plan(plan.to_dict(), materialised=target)
+    return _write_script(storage, args.script, plan)
+
+
+def _write_script(storage: Storage, destination: str | None, plan: Any) -> int:
+    """Write the shell transcript, through :class:`Storage` like every other write here."""
+    if destination is None:
+        return 0
+    path = Path(destination).expanduser()
+    try:
+        storage.write_bytes(path, plan.as_script().encode("utf-8"))
+    except StorageError as exc:
+        return _fail(str(exc))
+    print()
+    print(f"Wrote the plan as a shell transcript to {path}")
+    print("Read it before you run it — it installs packages and re-runs a command.")
     return 0
 
 
@@ -437,6 +676,19 @@ def _load_app() -> Any:
         return app
     storage = Storage()
     return _call_with_supported_kwargs(factory, storage=storage, root=storage.root)
+
+
+def _load_optional(name: str) -> Any | None:
+    """Import one of this package's own optional modules, or ``None``.
+
+    ``verify`` and ``replay`` are part of the base install and their absence means a
+    partial or vendored installation rather than a missing extra — but a viewer that
+    tracebacks on that is still a viewer that tracebacks.
+    """
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
 
 
 def _load_demo_generator() -> Callable[..., Any] | None:
@@ -559,6 +811,214 @@ def _print_metrics(metrics_summary: Any) -> None:
         print(f"  ! {note}")
 
 
+def _print_provenance(project: str, run_id: str, manifest: dict) -> None:
+    """The manifest as a page, with the two fields that decide reproducibility first.
+
+    Ordered by what a reader is looking for rather than by the order of the file: the
+    commit and whether the tree was dirty answer "can I get this code back", and
+    everything below is context on the answer.
+    """
+    git = _mapping(manifest.get("git"))
+    _print_fields(
+        [
+            ("Run", run_id),
+            ("Experiment", project),
+            ("Captured", manifest.get("captured_at") or ""),
+        ]
+    )
+
+    print()
+    if not git.get("available"):
+        print(f"Git (not recorded — {git.get('reason') or 'no reason recorded'})")
+    else:
+        print("Git")
+        untracked = git.get("untracked") if isinstance(git.get("untracked"), list) else []
+        untracked_note = _count(len(untracked), "untracked file")
+        if git.get("untracked_truncated"):
+            untracked_note += " (capped; there were more)"
+        rows = [
+            ("  Commit", git.get("commit") or ""),
+            ("  Branch", git.get("branch") or "(detached HEAD)"),
+            ("  Remote", git.get("remote") or "(no origin)"),
+            ("  Tree", ("dirty" if git.get("dirty") else "clean") + f", {untracked_note}"),
+            ("  Patch", _patch_label(git)),
+            ("  Note", git.get("reason") or ""),
+        ]
+        _print_fields(rows)
+
+    print()
+    python = _mapping(manifest.get("python"))
+    plat = _mapping(manifest.get("platform"))
+    hardware = _mapping(manifest.get("hardware"))
+    packages = _mapping(manifest.get("packages"))
+    environment = _mapping(manifest.get("environment"))
+    command = _mapping(manifest.get("command"))
+    argv = command.get("argv") if isinstance(command.get("argv"), list) else []
+    _print_fields(
+        [
+            ("Python", f"{python.get('version') or '?'} {python.get('implementation') or ''}".strip()),
+            ("Interpreter", python.get("executable") or ""),
+            (
+                "Platform",
+                " ".join(
+                    str(part)
+                    for part in (plat.get("system"), plat.get("release"), plat.get("machine"))
+                    if part
+                ),
+            ),
+            ("Processor", plat.get("processor") or ""),
+            ("Hardware", _hardware_label(hardware)),
+            ("Packages", _count(len(packages), "distribution")),
+            (
+                "Environment",
+                ", ".join(f"{k}={v}" for k, v in sorted(environment.items())) or "(none recorded)",
+            ),
+            ("Command", " ".join(str(part) for part in argv)),
+            ("Directory", command.get("cwd") or ""),
+        ]
+    )
+
+    datasets = manifest.get("datasets") if isinstance(manifest.get("datasets"), list) else []
+    print()
+    if not datasets:
+        print("Datasets (none — nothing was hashed for this run)")
+        return
+    print(f"Datasets ({len(datasets)})")
+    rows = []
+    for entry in datasets:
+        entry = _mapping(entry)
+        digest = entry.get("digest") or entry.get("sha256")
+        rows.append(
+            [
+                f"  {entry.get('name') or entry.get('path') or ''}",
+                f"{entry.get('algorithm') or 'sha256'}:{digest}"
+                if digest
+                else f"! {entry.get('error') or 'not hashed'}",
+                _scalar(entry.get("bytes", "")),
+                _scalar(entry.get("files", "")),
+            ]
+        )
+    _print_table(["  DATASET", "DIGEST", "BYTES", "FILES"], rows, right={2, 3})
+
+
+def _patch_label(git: dict) -> str:
+    if not git.get("diff_file"):
+        return "(none recorded)"
+    parts = [str(git.get("diff_file")), f"{_scalar(git.get('diff_bytes', 0))} bytes"]
+    digest = git.get("diff_sha256")
+    if digest:
+        parts.append(f"sha256 {str(digest)[:12]}")
+    if git.get("diff_truncated"):
+        parts.append("TRUNCATED — will not apply")
+    return "  ".join(parts)
+
+
+def _hardware_label(hardware: dict) -> str:
+    parts = [_count(int(hardware.get("cpu_count") or 0), "CPU")]
+    gpus = hardware.get("gpus") if isinstance(hardware.get("gpus"), list) else []
+    for gpu in gpus:
+        gpu = _mapping(gpu)
+        memory = gpu.get("memory_total_mb")
+        parts.append(f"{gpu.get('name') or 'GPU'}" + (f" ({memory} MB)" if memory else ""))
+    return "; ".join(parts)
+
+
+def _print_report(report: dict) -> None:
+    """The verdict, the checks, and then every check that is not ``ok`` in full.
+
+    A drifted verdict with no expansion is an accusation without evidence, so the second
+    half prints both sides of every difference. ``unknown`` gets the same treatment for the
+    opposite reason: the useful information there is which question went unanswered.
+    """
+    summary = _mapping(report.get("summary"))
+    checks = report.get("checks") if isinstance(report.get("checks"), list) else []
+    verdict = str(report.get("verdict") or "unverifiable")
+
+    _print_fields(
+        [
+            ("Run", report.get("run_id") or ""),
+            ("Experiment", report.get("project") or ""),
+            ("Verdict", verdict.upper()),
+        ]
+    )
+
+    print()
+    _print_table(
+        ["CHECK", "STATUS"],
+        [[str(_mapping(c).get("name") or ""), str(_mapping(c).get("status") or "")] for c in checks],
+    )
+    print()
+    print(
+        f"{summary.get('ok', 0)} ok, {summary.get('drift', 0)} drift, "
+        f"{summary.get('unknown', 0)} unknown"
+    )
+
+    for status, heading in (("drift", "Drifted"), ("unknown", "Unanswered")):
+        selected = [_mapping(c) for c in checks if _mapping(c).get("status") == status]
+        if not selected:
+            continue
+        print()
+        print(heading)
+        for check in selected:
+            print(f"  {check.get('name')}")
+            if check.get("expected") is not None:
+                print(f"    recorded  {_scalar(check.get('expected'))}")
+            if check.get("actual") is not None:
+                print(f"    found     {_scalar(check.get('actual'))}")
+            if check.get("detail"):
+                print(f"    {check.get('detail')}")
+
+
+def _print_plan(plan: dict, materialised: Path | None) -> None:
+    """The steps, then the caveats — never the caveats folded into the steps.
+
+    A warning printed inside a numbered list reads as an instruction, and the warnings
+    here are the opposite of instructions: they are the parts of the run this plan cannot
+    put back.
+    """
+    steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+    warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
+
+    _print_fields(
+        [
+            ("Run", plan.get("run_id") or ""),
+            ("Experiment", plan.get("project") or ""),
+            ("Target", plan.get("target") or "(none given — printing the plan only)"),
+        ]
+    )
+
+    print()
+    if materialised is not None:
+        print(f"Materialised the recorded commit at {materialised}")
+        print("Your working tree was not touched. What was done, and what is left to do:")
+    else:
+        print("Nothing has been created. To reconstruct this run:")
+    print()
+
+    if not steps:
+        print("  (no steps — see the warnings below)")
+    for step in steps:
+        step = _mapping(step)
+        suffix = "" if step.get("required", True) else "   (optional)"
+        print(f"  {step.get('order')}. {step.get('description')}{suffix}")
+        command = step.get("command")
+        if isinstance(command, list) and command:
+            print(f"     {_command_line([str(p) for p in command])}")
+        else:
+            print("     (no command — do this by hand)")
+
+    requirements = plan.get("requirements") if isinstance(plan.get("requirements"), list) else []
+    if requirements:
+        print()
+        print(f"{_count(len(requirements), 'recorded distribution')} in the package set.")
+
+    if warnings:
+        print()
+        print("What this plan cannot promise")
+        for warning in warnings:
+            print(f"  ! {warning}")
+
+
 def _cell(entry: dict, key: str) -> str:
     """Absent and ``null`` are different things in a stats table: absent is a stat the
     writer did not record, ``null`` is one it recorded as nothing."""
@@ -619,6 +1079,42 @@ def _short_time(value: Any) -> str:
 
 def _count(quantity: int, noun: str) -> str:
     return f"{quantity} {noun}" if quantity == 1 else f"{quantity} {noun}s"
+
+
+def _command_line(parts: Sequence[str]) -> str:
+    """Render an argument list so it can be pasted back into *this* shell.
+
+    ``ReplayPlan.as_script`` emits POSIX quoting because it emits a ``/bin/sh`` script;
+    what is printed to a terminal has to match the terminal it is printed to, and a
+    Windows path quoted the POSIX way is a path that does not exist.
+    """
+    if os.name == "nt":
+        return subprocess.list2cmdline(list(parts))
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _mapping(value: Any) -> dict:
+    """A dict or an empty one. Every field in ``provenance.json`` is optional and the file
+    is written by a capture path that degrades rather than failing, so a block being absent
+    or the wrong shape is an expected state and not a reason to stop rendering."""
+    return value if isinstance(value, dict) else {}
+
+
+def _locate(storage: Storage, run_id: str) -> tuple[str, str] | None:
+    """Resolve a run ID to ``(project, run_id)``, reporting the miss on stderr.
+
+    Run IDs are unique across experiments in this format, so a command takes one and
+    finds the experiment itself — the alternative is making the user name a directory
+    they have no reason to know.
+    """
+    located = storage.find_run(run_id)
+    if located is None:
+        _warn(
+            f"no run {run_id!r} under {storage.root}. "
+            f"Run `{PROGRAM} ls --project <experiment>` to see the run IDs."
+        )
+        return None
+    return located
 
 
 def _system_sample_count(system_metrics: Any) -> int:
