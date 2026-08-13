@@ -91,6 +91,34 @@
   background-color: var(--primary-hover);
 }
 
+.run-shell-message {
+  margin-top: 2rem;
+  padding: 2rem 1.5rem;
+  text-align: center;
+  color: var(--card-foreground);
+  opacity: 0.9;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.run-shell-message code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  padding: 0.1rem 0.35rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--input);
+  border: 1px solid var(--border);
+}
+
+.run-shell-error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
 .tabs-container {
   display: flex;
   flex-direction: column;

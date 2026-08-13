@@ -19,28 +19,42 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
   const [error, setError] = useState<string | null>(null);
   const [selectedCurve, setSelectedCurve] = useState<number>(0);
 
+  const isCurve = (value: unknown): value is ROCData => {
+    const candidate = value as ROCData | null;
+    return (
+      !!candidate &&
+      Array.isArray(candidate.fpr) &&
+      Array.isArray(candidate.tpr) &&
+      Array.isArray(candidate.thresholds) &&
+      typeof candidate.auc === 'number' &&
+      candidate.fpr.length > 0
+    );
+  };
+
   const fetchROCData = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/runs/${runId}/artifacts`);
-      
+      setError(null);
+      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
+      const response = await fetch(`/api/run/${runId}/artifacts`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch artifacts: ${response.statusText}`);
       }
 
       const artifacts = await response.json();
-      
-      // Look for ROC curve artifacts
-      const rocArtifacts = artifacts.filter((art: { type: string }) => 
-        art.type === 'roc_curve' || art.type === 'roc_auc'
-      );
+      const records: Array<{ type?: string; metadata?: unknown }> = Array.isArray(artifacts)
+        ? artifacts
+        : [];
 
-      if (rocArtifacts.length > 0) {
-        const rocData = rocArtifacts.map((art: { metadata: ROCData }) => art.metadata);
-        setCurves(rocData);
-      } else {
-        throw new Error('No ROC curve data found');
-      }
+      // One artifact line per class; `className` labels each curve.
+      // A run with no ROC artifact is the ordinary case, not a failure.
+      setCurves(
+        records
+          .filter((art) => art.type === 'roc_curve' || art.type === 'roc_auc')
+          .map((art) => art.metadata)
+          .filter(isCurve)
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -220,8 +234,10 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
     return <div className="roc-curve error">Error: {error}</div>;
   }
 
+  // Nothing to draw is not an error and not worth a card of its own; the
+  // Evaluation tab says once, quietly, when a run logged no evaluation artifacts.
   if (curves.length === 0) {
-    return <div className="roc-curve empty">No ROC curve data available.</div>;
+    return null;
   }
 
   const currentCurve = curves[selectedCurve];
@@ -281,7 +297,8 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
                   optimalIdx = i;
                 }
               });
-              return currentCurve.thresholds[optimalIdx].toFixed(3);
+              const threshold = currentCurve.thresholds[optimalIdx];
+              return typeof threshold === 'number' ? threshold.toFixed(3) : '—';
             })()}
           </div>
           <div className="metric-interpretation">Maximizes TPR - FPR</div>

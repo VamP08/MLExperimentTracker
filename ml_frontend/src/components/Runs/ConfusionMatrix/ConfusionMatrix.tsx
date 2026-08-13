@@ -23,24 +23,31 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
   const fetchConfusionMatrix = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/runs/${runId}/artifacts`);
-      
+      setError(null);
+      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
+      const response = await fetch(`/api/run/${runId}/artifacts`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch artifacts: ${response.statusText}`);
       }
 
       const artifacts = await response.json();
-      
-      // Look for confusion matrix artifact
-      const cmArtifact = artifacts.find((art: { type: string }) => 
-        art.type === 'confusion_matrix' || art.type === 'classification_report'
+      const records: Array<{ type?: string; metadata?: unknown }> = Array.isArray(artifacts)
+        ? artifacts
+        : [];
+
+      const cmArtifact = records.find(
+        (art) => art.type === 'confusion_matrix' || art.type === 'classification_report'
       );
 
-      if (cmArtifact && cmArtifact.metadata) {
-        setData(cmArtifact.metadata as ConfusionMatrixData);
-      } else {
-        throw new Error('No confusion matrix data found');
-      }
+      // `metadata` is passed through verbatim, so the keys are read exactly as
+      // written — `f1Score` is camelCase on disk for this payload alone.
+      const payload = cmArtifact?.metadata as ConfusionMatrixData | undefined;
+      const usable =
+        payload && Array.isArray(payload.labels) && Array.isArray(payload.matrix) && payload.matrix.length > 0;
+
+      // A run with no confusion matrix is the ordinary case, not a failure.
+      setData(usable ? payload : null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -112,8 +119,9 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
     return <div className="confusion-matrix error">Error: {error}</div>;
   }
 
+  // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
   if (!data) {
-    return <div className="confusion-matrix empty">No confusion matrix data available.</div>;
+    return null;
   }
 
   const normalizedMatrix = getNormalizedMatrix();
@@ -195,7 +203,9 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
         </div>
       </div>
 
-      {data.precision && data.recall && data.f1Score && (
+      {data.precision?.length === data.labels.length &&
+        data.recall?.length === data.labels.length &&
+        data.f1Score?.length === data.labels.length && (
         <div className="class-metrics">
           <h4>Per-Class Metrics</h4>
           <table className="metrics-table">

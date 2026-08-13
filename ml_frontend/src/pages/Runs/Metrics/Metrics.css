@@ -253,3 +253,13 @@
 .comparison-chart {
   height: 300px;
 }
+
+/* Gradient flow sits below the metrics table and renders nothing at all for a run
+   with no gradient series, so the wrapper must not reserve space either. */
+.metrics-gradients {
+  margin-top: 2rem;
+}
+
+.metrics-gradients:empty {
+  display: none;
+}

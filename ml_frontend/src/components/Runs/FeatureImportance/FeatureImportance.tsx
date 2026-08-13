@@ -21,24 +21,38 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
   const fetchFeatureImportance = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/runs/${runId}/artifacts`);
-      
+      setError(null);
+      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
+      const response = await fetch(`/api/run/${runId}/artifacts`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch artifacts: ${response.statusText}`);
       }
 
       const artifacts = await response.json();
-      
-      // Look for feature importance artifact
-      const fiArtifact = artifacts.find((art: { type: string }) => 
-        art.type === 'feature_importance' || art.type === 'feature_importances'
+      const records: Array<{ type?: string; metadata?: { features?: unknown } }> = Array.isArray(
+        artifacts
+      )
+        ? artifacts
+        : [];
+
+      const fiArtifact = records.find(
+        (art) => art.type === 'feature_importance' || art.type === 'feature_importances'
       );
 
-      if (fiArtifact && fiArtifact.metadata && fiArtifact.metadata.features) {
-        setFeatures(fiArtifact.metadata.features as FeatureData[]);
-      } else {
-        throw new Error('No feature importance data found');
-      }
+      const raw = fiArtifact?.metadata?.features;
+      // A run with no feature importances is the ordinary case, not a failure.
+      setFeatures(
+        Array.isArray(raw)
+          ? (raw as FeatureData[]).filter(
+              (feature) =>
+                feature &&
+                typeof feature.name === 'string' &&
+                typeof feature.importance === 'number' &&
+                Number.isFinite(feature.importance)
+            )
+          : []
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(errorMessage);
@@ -71,8 +85,9 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
     return <div className="feature-importance error">Error: {error}</div>;
   }
 
+  // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
   if (features.length === 0) {
-    return <div className="feature-importance empty">No feature importance data available.</div>;
+    return null;
   }
 
   return (
