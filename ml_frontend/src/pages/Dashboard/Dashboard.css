@@ -75,18 +75,51 @@
   gap: 1.5rem;
 }
 
-/* Left column - Experiments & Tags */
+/* Left column - search & experiment list */
 .dashboard-left {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 
-/* Right column - Activity & Recent Searches */
+/* Right column - activity */
 .dashboard-right {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+/* Shown when a search or tag filter matches nothing. Not an error state. */
+.dashboard-no-matches {
+  margin: 0;
+  padding: 2rem 1.5rem;
+  background-color: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--card-foreground);
+  opacity: 0.85;
+  text-align: center;
+}
+
+.dashboard-loading,
+.dashboard-error {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem 0;
+  color: var(--foreground);
+}
+
+.dashboard-error pre {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius);
+  padding: 0.875rem 1rem;
+  color: var(--card-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
 }
 
 /* Responsive adjustments */

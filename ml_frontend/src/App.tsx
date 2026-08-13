@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from "react-router-dom"
 
 import Sidebar from "./components/Sidebar/Sidebar"
+import NotFound from "./components/Dashboard/NotFound/NotFound"
 import { DashboardWithNav } from "./pages/Dashboard/DashboardWithNav"
 import Experiment from "./pages/Experiment/Experiment"
 import Runs from "./pages/Runs/Runs"
@@ -51,6 +52,8 @@ function App() {
               <Route path="/runs/:runId" element={<RunsWrapper />} />
               <Route path="/runs" element={<RunsWrapper />} />
               <Route path="/settings" element={<Settings />} />
+              {/* Catch-all: an unmatched URL used to render the sidebar beside a blank area */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </main>
         </div>

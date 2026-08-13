@@ -1,0 +1,125 @@
+.dashboard-empty {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  animation: fadeIn var(--transition);
+}
+
+.dashboard-empty-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+}
+
+.dashboard-empty-lead {
+  margin: 0;
+  max-width: 46rem;
+  color: var(--card-foreground);
+  opacity: 0.85;
+  line-height: 1.6;
+}
+
+.dashboard-empty-lead code,
+.dashboard-empty-card-text code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background-color: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.0625rem 0.3125rem;
+  white-space: nowrap;
+}
+
+.dashboard-empty-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 56rem;
+  margin-top: 0.5rem;
+  text-align: left;
+}
+
+.dashboard-empty-card {
+  background-color: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.dashboard-empty-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard-empty-card-title::before {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 1rem;
+  background-color: var(--primary);
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.dashboard-empty-card-text {
+  margin: 0;
+  color: var(--card-foreground);
+  opacity: 0.8;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.dashboard-empty-code {
+  margin: auto 0 0 0;
+  background-color: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.875rem;
+  overflow-x: auto;
+}
+
+.dashboard-empty-code code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--foreground);
+  white-space: pre;
+}
+
+.dashboard-empty-retry {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1.25rem;
+  background-color: var(--primary);
+  border: 1px solid var(--primary-dark);
+  border-radius: var(--radius);
+  color: #ffffff;
+  font-weight: 500;
+  transition: background-color var(--transition-fast);
+}
+
+.dashboard-empty-retry:hover {
+  background-color: var(--primary-hover);
+}
+
+@media (max-width: 640px) {
+  .dashboard-empty {
+    padding: 1.75rem 1.25rem;
+  }
+}
