@@ -37,7 +37,7 @@ from typing import Any, Callable, Iterator
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -186,6 +186,23 @@ def _locate_run(storage: Storage, run_id: str) -> tuple[str, dict] | None:
     if run is None:
         return None
     return project, run
+
+
+def _verify_report(storage: Storage, project: str, run_id: str) -> Any:
+    """Re-check a run's recorded world against the one that exists now.
+
+    The verifier is imported here rather than at the top of the module, and that is a
+    deliberate coupling choice rather than an import-time optimisation: it re-hashes
+    datasets and shells out to git, so an installation that never calls this route should
+    not load it, and an installation that does not ship it at all still serves the other
+    twenty.
+    """
+    try:
+        from ..verify import verify
+    except ImportError as exc:
+        raise _error(501, "Verification is not available in this installation") from exc
+
+    return verify(storage, project, run_id).to_dict()
 
 
 def _health(storage: Storage) -> dict:
@@ -411,6 +428,58 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
     async def artifacts(run_id: str) -> list[dict]:
         _, run = await locate(run_id)
         return _js_or(run.get("artifacts"), [])
+
+    @app.get("/api/run/{run_id}/provenance", response_model=None)
+    async def provenance(run_id: str) -> dict:
+        """The reproducibility manifest, verbatim.
+
+        Absence is a 404 rather than an empty object because it is a fact about the run
+        and not a fact about this request: every run written before format 1.1, and every
+        run whose capture failed, has no manifest, and a client has to be able to tell
+        "nothing was recorded" from "everything matched".
+        """
+        project, _ = await locate(run_id)
+        manifest = await _read(store.read_provenance, project, run_id)
+        if manifest is None:
+            raise _error(404, "No provenance recorded")
+        return manifest
+
+    @app.get("/api/run/{run_id}/patch", response_model=None)
+    async def patch(run_id: str) -> Response:
+        """The captured diff, as the bytes on disk.
+
+        Served as an attachment and never decoded. ``git diff --binary`` output is a
+        patch only for as long as nobody re-encodes it, and the one thing a user does with
+        this file is feed it back to ``git apply``. A zero-length file reads as absent:
+        the writer never produces one, so an empty patch is a patch somebody emptied.
+        """
+        project, _ = await locate(run_id)
+        data = await _read(store.read_patch, project, run_id)
+        if not data:
+            raise _error(404, "No patch recorded")
+        return Response(
+            content=data,
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": "attachment; filename="
+                f'"{_attachment_filename(run_id + "_uncommitted", "patch")}"'
+            },
+        )
+
+    @app.get("/api/run/{run_id}/verify", response_model=None)
+    async def verify(run_id: str) -> Any:
+        """Drift between the world the manifest recorded and the world as it is now.
+
+        The manifest is checked for first so that a run with nothing recorded answers the
+        same 404 as the provenance route, with the same message. Verification re-hashes
+        datasets and runs git, so it is offloaded like every other disk read here — it is
+        the slowest thing this server does, and the only one whose cost is unbounded by
+        the size of the run directory.
+        """
+        project, _ = await locate(run_id)
+        if await _read(store.read_provenance, project, run_id) is None:
+            raise _error(404, "No provenance recorded")
+        return await _read(_verify_report, store, project, run_id)
 
     @app.get("/api/run/{run_id}", response_model=None)
     async def run(run_id: str) -> dict:

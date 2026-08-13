@@ -4,6 +4,7 @@ import Metrics from '../../../components/Runs/Overview/Metrics/Metrics';
 import Tags from '../../../components/Runs/Overview/Tags/Tags';
 import Insights from '../../../components/Runs/Overview/Insights/Insights';
 import Description from '../../../components/Runs/Overview/Description/Description';
+import Provenance from '../../../components/Runs/Provenance/Provenance';
 import './Overview.css';
 import { useEffect, useState } from 'react';
 
@@ -161,6 +162,9 @@ const Overview = ( {runId}: OverviewProps) => {
         <div className="card insights-card">
           {insight && <Insights insights={insight} />}
         </div>
+        {/* Carries its own card, because a run with no manifest — every run written
+            before format 1.1 — must render nothing rather than an empty card. */}
+        <Provenance runId={runId} />
       </div>
     </div>
   );

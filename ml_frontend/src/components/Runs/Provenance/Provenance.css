@@ -1,0 +1,210 @@
+/* Every class here is prefixed `provenance-`. Class names in this project are global and
+   already collide across component files, so a bare `.row` or `.badge` would restyle
+   somebody else's card the moment both are on the page. */
+
+.provenance {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+  transition: all var(--transition);
+}
+
+.provenance:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-light);
+}
+
+.provenance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.provenance-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.provenance-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.provenance-badge-clean {
+  color: var(--success);
+  border-color: var(--success);
+  background-color: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.provenance-badge-dirty {
+  color: var(--warning);
+  border-color: var(--warning);
+  background-color: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.provenance-badge-unknown {
+  color: var(--card-foreground);
+  border-color: var(--border);
+  background-color: var(--input);
+}
+
+.provenance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.provenance-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.provenance-subtitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--card-foreground);
+  opacity: 0.75;
+}
+
+.provenance-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.875rem;
+}
+
+.provenance-label {
+  color: var(--card-foreground);
+  opacity: 0.75;
+  flex: 0 0 auto;
+}
+
+.provenance-value {
+  color: var(--foreground);
+  text-align: right;
+  min-width: 0;
+}
+
+.provenance-mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.provenance-break {
+  word-break: break-all;
+}
+
+.provenance-branch {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--input);
+  color: var(--card-foreground);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+}
+
+.provenance-note {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--card-foreground);
+  opacity: 0.75;
+}
+
+.provenance-reason {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  color: var(--warning);
+}
+
+.provenance-download {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.provenance-download:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+.provenance-dataset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.875rem;
+}
+
+.provenance-toggle {
+  margin-left: 0.5rem;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.provenance-toggle:hover {
+  color: var(--primary-hover);
+}
+
+.provenance-packages {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  background-color: var(--input);
+  border-radius: var(--radius-sm);
+}
+
+.provenance-package {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.1rem 0;
+}
+
+.provenance-package-version {
+  color: var(--card-foreground);
+  opacity: 0.75;
+}
+
+.provenance-captured {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  color: var(--card-foreground);
+  opacity: 0.7;
+}
+
+.provenance-placeholder {
+  padding: 1rem 1.25rem;
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.provenance-error {
+  color: var(--error);
+}
