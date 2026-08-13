@@ -1,220 +1,196 @@
-.run-comparison {
-  padding: 20px;
+/* Every class here is prefixed `runcomparison-`. The unprefixed names this file
+   used to carry — .tag, .metric-value, .param-name, .run-name, .run-header —
+   each collide with at least one other global stylesheet in this project. */
+
+.runcomparison {
+  color: var(--card-foreground);
 }
 
-.comparison-header {
-  margin-bottom: 24px;
+.runcomparison-heading {
+  margin-bottom: 1.5rem;
 }
 
-.comparison-header h3 {
-  margin: 0 0 8px 0;
-  color: #fff;
-  font-size: 24px;
+.runcomparison-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--foreground);
 }
 
-.comparison-header .subtitle {
+.runcomparison-subtitle {
   margin: 0;
-  color: #999;
-  font-size: 14px;
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+  opacity: 0.75;
 }
 
-.run-selector {
+.runcomparison-selector {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px;
-  margin-bottom: 30px;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
 }
 
-.run-item {
+.runcomparison-run-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: #2a2a2a;
-  border: 2px solid #3a3a3a;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
 }
 
-.run-item:hover {
-  border-color: #4a9eff;
-  background: #2f2f2f;
+.runcomparison-run-item:hover {
+  border-color: var(--primary);
+  background-color: var(--input);
 }
 
-.run-item.selected {
-  border-color: #4a9eff;
-  background: #2a3a4a;
+.runcomparison-run-item-selected {
+  border-color: var(--primary);
+  background-color: var(--input);
 }
 
-.run-checkbox {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #4a9eff;
-  border-radius: 4px;
+.runcomparison-run-check {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4a9eff;
-  font-weight: bold;
   flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
-.run-info {
-  flex: 1;
+.runcomparison-run-item-selected .runcomparison-run-check {
+  background-color: var(--primary);
+  color: var(--card);
+}
+
+.runcomparison-run-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
   min-width: 0;
 }
 
-.run-name {
-  font-size: 14px;
+.runcomparison-run-name {
+  font-size: 0.875rem;
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.run-meta {
-  font-size: 12px;
-  color: #999;
-  margin-top: 4px;
+.runcomparison-run-meta {
+  font-size: 0.75rem;
+  color: var(--card-foreground);
+  opacity: 0.75;
 }
 
-.comparison-section {
-  margin-bottom: 32px;
+.runcomparison-section {
+  margin-bottom: 2rem;
 }
 
-.comparison-section h4 {
-  margin: 0 0 16px 0;
-  color: #e0e0e0;
-  font-size: 18px;
+.runcomparison-section:last-child {
+  margin-bottom: 0;
 }
 
-.comparison-table-container {
+.runcomparison-section-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.runcomparison-table-wrap {
   overflow-x: auto;
-  background: #2a2a2a;
-  border-radius: 8px;
-  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
-.comparison-table {
+.runcomparison-table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.875rem;
 }
 
-.comparison-table th {
-  padding: 12px 16px;
+.runcomparison-th {
+  padding: 0.625rem 1rem;
   text-align: left;
-  background: #333;
-  color: #999;
-  font-weight: 500;
-  font-size: 13px;
-  border-bottom: 2px solid #444;
+  white-space: nowrap;
+  background-color: var(--input);
+  color: var(--card-foreground);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
 }
 
-.comparison-table th:first-child {
-  border-top-left-radius: 6px;
+.runcomparison-run-title {
+  color: var(--primary);
 }
 
-.comparison-table th:last-child {
-  border-top-right-radius: 6px;
+.runcomparison-table td {
+  padding: 0.625rem 1rem;
+  color: var(--card-foreground);
+  border-bottom: 1px solid var(--border);
 }
 
-.comparison-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid #333;
-  color: #e0e0e0;
-  font-size: 14px;
-}
-
-.comparison-table tr:last-child td {
+.runcomparison-table tr:last-child td {
   border-bottom: none;
 }
 
-.comparison-table tr:hover {
-  background: #2f2f2f;
-}
-
-.run-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.run-name-short {
-  font-weight: 600;
-  color: #4a9eff;
-}
-
-.metric-name,
-.param-name,
-.meta-name {
+.runcomparison-row-label {
   font-weight: 500;
-  color: #b0b0b0;
+  color: var(--foreground);
 }
 
-.metric-value {
-  position: relative;
-  font-family: 'Courier New', monospace;
+.runcomparison-metric-value,
+.runcomparison-param-value {
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
-.metric-value.best {
-  color: #7ec97f;
+.runcomparison-metric-high {
+  color: var(--info);
   font-weight: 600;
 }
 
-.metric-value.worst {
-  color: #ff9999;
-}
-
-.metric-value .badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 6px;
-  background: #2d4a2e;
-  color: #7ec97f;
-  border-radius: 4px;
-  font-size: 10px;
+.runcomparison-metric-low {
+  color: var(--warning);
   font-weight: 600;
 }
 
-.param-differs {
-  background: #2a2a3a;
+.runcomparison-row-differs {
+  background-color: var(--input);
 }
 
-.diff-indicator {
-  color: #4a9eff;
-  margin-left: 6px;
-  font-size: 18px;
+.runcomparison-diff-dot {
+  margin-left: 0.375rem;
+  color: var(--primary);
 }
 
-.param-value {
-  font-family: 'Courier New', monospace;
+.runcomparison-note {
+  margin: 0.5rem 0 0 0;
+  font-size: 0.8125rem;
+  color: var(--card-foreground);
+  opacity: 0.75;
 }
 
-.tags-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tag {
-  padding: 4px 8px;
-  background: #3a3a4a;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #9db4ff;
-}
-
-.comparison-loading,
-.comparison-error,
-.comparison-empty {
-  padding: 60px 20px;
+.runcomparison-placeholder {
+  padding: 2rem 1rem;
   text-align: center;
-  color: #999;
-  font-size: 16px;
+  color: var(--card-foreground);
+  opacity: 0.8;
 }
 
-.comparison-error {
-  color: #ff4444;
+.runcomparison-error {
+  color: var(--error);
+  opacity: 1;
 }

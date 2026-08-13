@@ -1,80 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import './Metrics.css';
 import MetricsChart from '../../../components/Runs/MetricsChart/MetricsChart';
-
-interface MetricData {
-  name: string;
-  value: string;
-  description: string;
-  latest?: number;
-  mean?: number;
-  min?: number;
-  max?: number;
-}
+import GradientVisualization from '../../../components/Runs/GradientVisualization/GradientVisualization';
+import { groupFlatMetrics, describeMetricStats, type MetricGroup } from '../../../lib/metrics';
 
 interface MetricsProps {
   runId?: string;
 }
 
-const STAT_SUFFIXES = ['Mean', 'Max', 'Min', 'Stddev'] as const;
-
-/**
- * The API returns `metrics` as a flat map of scalars, not as nested stat
- * objects: `summary.json`'s `{loss: {latest, mean, max, min, stddev}}` has
- * already been flattened by the backend into `loss`, `lossMean`, `lossMax`,
- * `lossMin`, `lossStddev`. Reassemble the groups here.
- *
- * Known ambiguity: a metric genuinely named `loss_mean` arrives as `lossMean`
- * and is indistinguishable from the derived mean of `loss`. Avoid metric names
- * ending in _mean/_max/_min/_stddev — see docs/DATA-CONTRACT.md.
- */
-const groupFlatMetrics = (flat: Record<string, unknown>): MetricData[] => {
-  const numeric = new Map<string, number>();
-  for (const [key, value] of Object.entries(flat)) {
-    if (typeof value === 'number' && Number.isFinite(value)) numeric.set(key, value);
-  }
-
-  const isStatOf = (key: string): string | null => {
-    for (const suffix of STAT_SUFFIXES) {
-      if (key.endsWith(suffix)) {
-        const base = key.slice(0, -suffix.length);
-        if (base.length > 0 && numeric.has(base)) return base;
-      }
-    }
-    return null;
-  };
-
-  const metrics: MetricData[] = [];
-  for (const [key, latest] of numeric) {
-    if (isStatOf(key) !== null) continue;
-
-    const mean = numeric.get(`${key}Mean`);
-    const min = numeric.get(`${key}Min`);
-    const max = numeric.get(`${key}Max`);
-
-    const stats = [
-      mean !== undefined ? `Mean: ${mean.toFixed(4)}` : null,
-      min !== undefined ? `Min: ${min.toFixed(4)}` : null,
-      max !== undefined ? `Max: ${max.toFixed(4)}` : null,
-    ].filter(Boolean);
-
-    metrics.push({
-      name: key,
-      value: latest.toFixed(4),
-      description: stats.length > 0 ? stats.join(', ') : 'Latest value only — no summary statistics logged.',
-      latest,
-      mean,
-      min,
-      max,
-    });
-  }
-
-  return metrics.sort((a, b) => a.name.localeCompare(b.name));
-};
-
 const Metrics = ({ runId }: MetricsProps) => {
   const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
-  const [metrics, setMetrics] = useState<MetricData[]>([]);
+  const [metrics, setMetrics] = useState<MetricGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,8 +108,8 @@ const Metrics = ({ runId }: MetricsProps) => {
                 <div className="metric-header">
                   <h3 className="metric-name">{metric.name}</h3>
                 </div>
-                <div className="metric-value">{metric.value}</div>
-                <div className="metric-description">{metric.description}</div>
+                <div className="metric-value">{metric.latest.toFixed(4)}</div>
+                <div className="metric-description">{describeMetricStats(metric)}</div>
               </div>
             ))}
           </div>
@@ -194,7 +130,7 @@ const Metrics = ({ runId }: MetricsProps) => {
                 {metrics.map((metric) => (
                   <tr key={metric.name}>
                     <td className="metric-name-cell">{metric.name}</td>
-                    <td className="metric-value-cell">{metric.value}</td>
+                    <td className="metric-value-cell">{metric.latest.toFixed(4)}</td>
                     <td>{metric.mean !== undefined ? metric.mean.toFixed(4) : '—'}</td>
                     <td>{metric.min !== undefined ? metric.min.toFixed(4) : '—'}</td>
                     <td>{metric.max !== undefined ? metric.max.toFixed(4) : '—'}</td>
@@ -204,6 +140,14 @@ const Metrics = ({ runId }: MetricsProps) => {
             </table>
           </div>
         </>
+      )}
+
+      {/* Renders nothing unless the run logged `gradient/<layer>/<stat>` series,
+          which most runs do not. */}
+      {runId && (
+        <div className="metrics-gradients">
+          <GradientVisualization runId={runId} />
+        </div>
       )}
     </div>
   );

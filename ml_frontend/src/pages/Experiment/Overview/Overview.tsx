@@ -16,6 +16,18 @@ interface Activity {
   event: string;
 }
 
+/** The slice of `GET /api/experiment/:id` this page reads. */
+interface ExperimentOverview {
+  description?: string | null;
+  activityTimeline?: { date?: string; event?: string }[];
+  stats?: {
+    totalRuns?: number;
+    successRate?: string;
+    avgDuration?: string;
+    lastRun?: string;
+  };
+}
+
 interface OverviewProps {
   experimentId: string;
 }
@@ -24,37 +36,79 @@ const Overview = ({ experimentId }: OverviewProps) => {
   const [statsData, setStatsData] = useState<StatsData[]>([]);
   const [activitiesData, setActivitiesData] = useState<Activity[]>([]);
   const [description, setDescription] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchOverview = async () => {
-      if (!experimentId) return;
+      if (!experimentId) {
+        setLoading(false);
+        return;
+      }
 
       try {
+        setLoading(true);
+        setError(null);
+
         const res = await fetch(`/api/experiment/${experimentId}`);
-        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(`Request failed with ${res.status}`);
+        }
+
+        const data: ExperimentOverview = await res.json();
+        const stats = data.stats ?? {};
 
         setStatsData([
-          { title: "Total Runs", value: data.stats.totalRuns.toString() },
-          { title: "Success Rate", value: data.stats.successRate },
-          { title: "Average Duration", value: data.stats.avgDuration },
-          { title: "Last Run", value: data.stats.lastRun },
+          { title: "Total Runs", value: String(stats.totalRuns ?? 0) },
+          { title: "Success Rate", value: stats.successRate ?? "—" },
+          { title: "Average Duration", value: stats.avgDuration ?? "—" },
+          { title: "Last Run", value: stats.lastRun ?? "—" },
         ]);
 
+        // `activityTimeline` is a hardcoded empty array on the server side
+        // (GAPS M14), so this maps nothing today. It is read defensively rather
+        // than skipped, because the field is part of the response contract.
+        const timeline = Array.isArray(data.activityTimeline)
+          ? data.activityTimeline
+          : [];
         setActivitiesData(
-          data.activityTimeline.map((act: any) => ({
-            date: new Date(act.date).toLocaleDateString(),
-            event: act.event,
-          }))
+          timeline.map((activity) => {
+            const date = activity.date ? new Date(activity.date) : null;
+            return {
+              date:
+                date && !Number.isNaN(date.getTime())
+                  ? date.toLocaleDateString()
+                  : "—",
+              event: activity.event ?? "",
+            };
+          }),
         );
 
         setDescription(data.description || "");
       } catch (err) {
-        console.error("Failed to fetch experiment overview:", err);
+        setError(err instanceof Error ? err.message : "Failed to load overview");
+        setStatsData([]);
+        setActivitiesData([]);
+        setDescription("");
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchOverview();
   }, [experimentId]);
+
+  if (loading) {
+    return <div className="overview-status">Loading overview...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="overview-status overview-status-error">
+        Could not load this experiment&rsquo;s overview: {error}
+      </div>
+    );
+  }
 
   return (
     <div className="overview-container">

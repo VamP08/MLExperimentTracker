@@ -48,6 +48,8 @@
   font-size: 0.875rem;
   color: var(--card-foreground);
   opacity: 0.8;
+  /* Reserved so the header does not shift when the date is not yet known. */
+  min-height: 1.25rem;
 }
 
 .experiment-actions {
@@ -144,6 +146,23 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* Loading, empty and error for the shell itself. Only the error variant is
+   coloured — an empty storage root is a first-run state, not a fault. */
+.experiment-status {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--card-foreground);
+}
+
+.experiment-status code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.experiment-status-error {
+  color: var(--error);
 }
 
 @keyframes fadeIn {

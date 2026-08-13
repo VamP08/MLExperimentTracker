@@ -25,15 +25,26 @@ interface ExperimentDetails {
 const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [experiment, setExperiment] = useState<ExperimentDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchExperiment = async () => {
       try {
+        setLoading(true);
+        setError(null);
+
         const res = experimentId
           ? await fetch(`/api/experiment/${experimentId}`)
           : await fetch("/api/experiment");
 
-        if (!res.ok) throw new Error(`Failed to fetch experiment`);
+        // 404 on the parameterless route means the storage root holds no
+        // experiments at all, which is a first-run state rather than a fault.
+        if (res.status === 404) {
+          setExperiment(null);
+          return;
+        }
+        if (!res.ok) throw new Error(`Request failed with ${res.status}`);
 
         const data = await res.json();
         setExperiment({
@@ -42,7 +53,10 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
           createdAt: data.createdAt,
         });
       } catch (err) {
-        console.error("Error fetching experiment:", err);
+        setError(err instanceof Error ? err.message : "Failed to load experiment");
+        setExperiment(null);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -51,6 +65,7 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "an unrecorded date";
     return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
@@ -59,7 +74,26 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
   };
 
   const renderTabContent = () => {
-    if (!experiment) return null;
+    if (loading) {
+      return <div className="experiment-status">Loading experiment...</div>;
+    }
+
+    if (error) {
+      return (
+        <div className="experiment-status experiment-status-error">
+          Could not load this experiment: {error}
+        </div>
+      );
+    }
+
+    if (!experiment) {
+      return (
+        <div className="experiment-status">
+          No experiment found. Runs appear here once something has been logged to the
+          storage root — <code>mlexp path</code> prints the directory being read.
+        </div>
+      );
+    }
 
     switch (activeTab) {
       case "overview":
@@ -79,13 +113,13 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
         <div className="experiment-header">
           <div className="experiment-info">
             <h1 className="experiment-name">
-              {experiment?.name || "Loading..."}
+              {experiment?.name ??
+                (loading ? "Loading..." : error ? "Experiment unavailable" : "No experiment")}
             </h1>
             <p className="experiment-date">
-              Created on{" "}
               {experiment?.createdAt
-                ? formatDate(experiment.createdAt)
-                : "—"}
+                ? `Created on ${formatDate(experiment.createdAt)}`
+                : null}
             </p>
           </div>
         </div>

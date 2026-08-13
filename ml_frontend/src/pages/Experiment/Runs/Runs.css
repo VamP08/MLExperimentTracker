@@ -10,11 +10,80 @@
   padding: 1rem;
 }
 
+.runs-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .runs-title {
   font-size: 1.5rem;
   font-weight: bold;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   color: var(--foreground);
+}
+
+.runs-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.runs-selected-count {
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+}
+
+.runs-clear-button,
+.runs-compare-button {
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.runs-clear-button {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  color: var(--card-foreground);
+}
+
+.runs-clear-button:hover {
+  background-color: var(--input);
+  border-color: var(--primary);
+}
+
+.runs-compare-button {
+  background-color: var(--primary);
+  border: 1px solid var(--primary-dark);
+  color: white;
+}
+
+.runs-compare-button:hover {
+  background-color: var(--primary-hover);
+}
+
+/* Loading, error and empty share one quiet block. An experiment with no runs
+   is an ordinary state, not a failure, so only the error variant is coloured. */
+.runs-loading,
+.runs-error,
+.runs-empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--card-foreground);
+}
+
+.runs-error {
+  color: var(--error);
+}
+
+.runs-empty code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
 }
 
 /* Table container */
@@ -154,6 +223,13 @@
 .status-failed {
   background-color: var(--error);
   color: white;
+}
+
+/* `interrupted` reaches the UI as `archived`; without this it fell through to
+   the failed colour and a killed run read as a crashed one. */
+.status-archived {
+  background-color: var(--border);
+  color: var(--foreground);
 }
 
 /* Border styles */

@@ -60,6 +60,16 @@
   height: 100%;
 }
 
+.overview-status {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--card-foreground);
+}
+
+.overview-status-error {
+  color: var(--error);
+}
+
 @media (max-width: 1024px) {
   .overview-container {
     flex-direction: column;
