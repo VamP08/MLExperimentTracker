@@ -67,3 +67,73 @@
   border-color: var(--primary);
   color: var(--primary);
 }
+
+/* GAPS N20: the inline replacement for the window.prompt() this component used
+   to open. Classes are `run-tags-` prefixed because `.tag`, `.tags-container`
+   and `.tags-title` above already collide with other global stylesheets here. */
+
+.run-tags-empty {
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+  align-self: center;
+}
+
+.run-tags-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.run-tags-label {
+  font-size: 0.8125rem;
+  color: var(--card-foreground);
+}
+
+.run-tags-input {
+  padding: 0.375rem 0.75rem;
+  min-width: 9rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--foreground);
+  background-color: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  transition: border-color var(--transition-fast);
+}
+
+.run-tags-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.run-tags-confirm,
+.run-tags-cancel {
+  padding: 0.375rem 0.875rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.run-tags-confirm {
+  background-color: var(--primary);
+  border: 1px solid var(--primary);
+  color: white;
+}
+
+.run-tags-confirm:hover {
+  background-color: var(--primary-hover);
+}
+
+.run-tags-cancel {
+  background-color: transparent;
+  border: 1px solid var(--border);
+  color: var(--card-foreground);
+}
+
+.run-tags-cancel:hover {
+  background-color: var(--input);
+  color: var(--foreground);
+}

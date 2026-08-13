@@ -22,12 +22,15 @@ interface MetricsData {
   value: number;
 }
 
+// GAPS M13: these are the keys the API actually sends. The response is cast
+// straight into this interface, so a name that is wrong here renders blank
+// forever with nothing to catch it — `Starttime`/`Endtime` did exactly that.
 interface RunInformation {
   _id: string;
   status: string;
-  Starttime: string;
-  Endtime: string;
-  duration: string;
+  startTime: string | null;
+  endTime: string | null;
+  duration: number;
   tags: string[];
 }
 
@@ -47,26 +50,33 @@ const Overview = ( {runId}: OverviewProps) => {
   const [insight, setRunInsight] = useState<RunInsight | null>(null);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [description, setDescription] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchOverview = async () => {
-      console.log("runId received in Overview:", runId);
-      if (!runId) return;
+      if (!runId) {
+        setLoading(false);
+        return;
+      }
 
       try{
-        const res = runId
-          ? await fetch(`/api/run/${runId}`)
-          : await fetch("/api/run");
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch(`/api/run/${runId}`);
+        if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+
         const data = await res.json();
-        
+
         setParametersData(
-          Object.entries(data.parameters).map(([name, value]) => ({
+          Object.entries(data.parameters || {}).map(([name, value]) => ({
             name,
             value: value as number
           }))
         );
 
-        const mappedMetrics = Object.entries(data.metrics).map(([name, value]) => ({
+        const mappedMetrics = Object.entries(data.metrics || {}).map(([name, value]) => ({
           name,
           value: value as number
         }));
@@ -85,7 +95,7 @@ const Overview = ( {runId}: OverviewProps) => {
         }
 
         setRunInsight({
-          parameters: Object.keys(data.parameters).length,
+          parameters: Object.keys(data.parameters || {}).length,
           metrics: mappedMetrics.length,
           topMetric
         });
@@ -95,7 +105,13 @@ const Overview = ( {runId}: OverviewProps) => {
 
       }
       catch (err) {
-        console.error("Failed to fetch run overview:", err);
+        // GAPS M24: this used to be a bare console.error, which left the page
+        // showing an empty shell that was indistinguishable from a slow load.
+        setError(err instanceof Error ? err.message : "Unknown error");
+        setRunData(null);
+      }
+      finally {
+        setLoading(false);
       }
     };
 
@@ -130,6 +146,18 @@ const Overview = ( {runId}: OverviewProps) => {
   } catch (error) {
     console.error('Failed to update description:', error);
   }};
+
+  if (loading) {
+    return <div className="run-overview-message">Loading run overview...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="run-overview-message run-overview-error">
+        Could not load this run: {error}
+      </div>
+    );
+  }
 
   return (
     <div className="run-overview-container">

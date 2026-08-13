@@ -1,29 +1,48 @@
 "use client";
 
-import type React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./Information.css";
 
 interface RunInfoProps {
+  // GAPS M13: `startTime` and `endTime` are the keys the API sends. The previous
+  // `Starttime`/`Endtime` matched nothing and both fields were permanently blank.
   runInfo: {
     _id: string;
-    Starttime: string;
-    Endtime: string;
-    duration: string;
+    startTime: string | null;
+    endTime: string | null;
+    duration: number;
     status: string;
   };
 }
 
 const Information: React.FC<RunInfoProps> = ({ runInfo }) => {
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+
   const handleCopyId = () => {
     navigator.clipboard
       .writeText(runInfo._id)
-      .then(() => alert("Run ID copied to clipboard"))
+      .then(() => {
+        setCopied(true);
+        window.clearTimeout(copyTimer.current);
+        copyTimer.current = window.setTimeout(() => setCopied(false), 2000);
+      })
       .catch((err) => console.error("Failed to copy ID:", err));
   };
 
-  const formatDuration = (secondsString: string): string => {
-    const totalSeconds = parseFloat(secondsString);
-    if (isNaN(totalSeconds)) return "N/A";
+  // An absent end time is the normal state of a running run, so it reads as a
+  // dash rather than as a missing value.
+  const formatTimestamp = (value: string | null): string => {
+    if (!value) return "—";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const totalSeconds = Number(seconds);
+    if (!Number.isFinite(totalSeconds)) return "N/A";
 
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -45,7 +64,12 @@ const Information: React.FC<RunInfoProps> = ({ runInfo }) => {
             <span className="item-value id-value" title={runInfo._id}>
               {runInfo._id}
             </span>
-            <button className="copy-button" onClick={handleCopyId} title="Copy ID">
+            <button
+              className="copy-button"
+              onClick={handleCopyId}
+              title="Copy ID"
+              aria-label="Copy run ID"
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="14"
@@ -61,6 +85,13 @@ const Information: React.FC<RunInfoProps> = ({ runInfo }) => {
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
               </svg>
             </button>
+            <span
+              className={`information-copied ${copied ? "is-visible" : ""}`}
+              role="status"
+              aria-live="polite"
+            >
+              {copied ? "Copied" : ""}
+            </span>
           </div>
         </div>
 
@@ -73,12 +104,12 @@ const Information: React.FC<RunInfoProps> = ({ runInfo }) => {
 
         <div className="information-item">
           <span className="item-label">Start Time</span>
-          <span className="item-value">{runInfo.Starttime}</span>
+          <span className="item-value">{formatTimestamp(runInfo.startTime)}</span>
         </div>
 
         <div className="information-item">
           <span className="item-label">End Time</span>
-          <span className="item-value">{runInfo.Endtime}</span>
+          <span className="item-value">{formatTimestamp(runInfo.endTime)}</span>
         </div>
 
         <div className="information-item">
