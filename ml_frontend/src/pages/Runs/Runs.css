@@ -1,0 +1,185 @@
+.run-page {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--background);
+  animation: fadeIn var(--transition);
+}
+
+.run-content {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.run-header {
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.run-info {
+  flex: 1;
+}
+
+.run-name {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+  position: relative;
+  padding-bottom: 0.5rem;
+}
+
+.run-name::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 3rem;
+  height: 3px;
+  background-color: var(--primary);
+  border-radius: var(--radius-full);
+}
+
+.run-experiment {
+  font-size: 1rem;
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.run-date {
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+  opacity: 0.8;
+}
+
+.run-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.run-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.run-button:hover {
+  background-color: var(--input);
+  border-color: var(--primary);
+}
+
+.run-button.primary {
+  background-color: var(--primary);
+  color: white;
+  border-color: var(--primary-dark);
+}
+
+.run-button.primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.tabs-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  position: relative;
+  padding: 0.875rem 1.5rem;
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--card-foreground);
+  opacity: 0.8;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.tab:hover {
+  color: var(--foreground);
+  opacity: 1;
+}
+
+.tab.active {
+  color: var(--primary);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--primary);
+}
+
+.tab-content-container {
+  background-color: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  min-height: 400px;
+  border: 1px solid var(--border);
+}
+
+.tab-content {
+  animation: fadeIn var(--transition);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Remove dark mode media query */
+
+@media (max-width: 768px) {
+  .run-content {
+    padding: 1rem;
+  }
+
+  .run-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .run-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .run-name {
+    font-size: 1.5rem;
+  }
+
+  .tab {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+  }
+}

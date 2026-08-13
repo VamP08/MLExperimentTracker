@@ -1,0 +1,45 @@
+# Engineering notes are kept in a separate private repository.
+# Remove this line if you want them published with the code.
+/docs/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# The built dashboard, produced by scripts/build_ui.py. It is packaged into the wheel and
+# the sdist as a build artifact (see pyproject.toml) rather than committed, because a
+# checked-in bundle goes stale against the source it was built from without saying so.
+/src/mlexperimenttracker/server/static/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors
+/.vscode
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

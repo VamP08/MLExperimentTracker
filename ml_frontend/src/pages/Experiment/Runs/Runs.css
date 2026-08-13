@@ -1,0 +1,260 @@
+/* Update colors to use CSS variables */
+/* Container styles */
+.runs-container {
+  width: 100%;
+  height: 100%;
+  background-color: var(--card);
+}
+
+.runs-content {
+  padding: 1rem;
+}
+
+.runs-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+  color: var(--foreground);
+}
+
+/* Table container */
+.table-container {
+  overflow: auto;
+  max-height: 100vh;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow);
+}
+
+.runs-table {
+  min-width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.runs-table th,
+.runs-table td {
+  border-right: 1px solid var(--border);
+}
+
+.runs-table tbody {
+  background-color: var(--card);
+}
+
+.runs-table tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.runs-table tbody tr:hover {
+  background-color: var(--background);
+}
+
+/* Header styles */
+.header-main {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 2px solid var(--border);
+}
+
+.header-sub {
+  position: sticky;
+  top: 2.25rem;
+  z-index: 20;
+  border-bottom: 2px solid var(--border);
+}
+
+.header-cell {
+  padding: 0.75rem;
+  text-align: center;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.header-cell-fixed {
+  position: sticky;
+  left: 0;
+  z-index: 30;
+  background-color: var(--background);
+}
+
+.header-cell-run {
+  position: sticky;
+  left: 2.5rem;
+  z-index: 30;
+  background-color: var(--background);
+  text-align: left;
+  min-width: 8rem;
+}
+
+/* Group header backgrounds */
+.status-group {
+  background-color: var(--primary-light);
+  color: var(--foreground);
+}
+
+.metrics-group {
+  background-color: var(--info);
+  color: white;
+}
+
+.parameters-group {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Cell styles */
+.cell {
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.cell-checkbox {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: inherit;
+}
+
+.cell-run {
+  position: sticky;
+  left: 2.5rem;
+  z-index: 10;
+  background-color: inherit;
+  color: var(--primary);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cell-run:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+/* Status badges */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.status-completed {
+  background-color: var(--success);
+  color: white;
+}
+
+.status-running {
+  background-color: var(--info);
+  color: white;
+}
+
+.status-failed {
+  background-color: var(--error);
+  color: white;
+}
+
+/* Border styles */
+.border-right {
+  border-right: 1px solid var(--border);
+}
+
+.border-right-thick {
+  border-right: 2px solid var(--border);
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .runs-container {
+    background-color: #1e293b;
+    background-color: var(--card);
+  }
+
+  .runs-title {
+    color: #f1f5f9;
+    color: var(--foreground);
+  }
+
+  .table-container {
+    border-color: #334155;
+    border-color: var(--border);
+  }
+
+  .runs-table th,
+  .runs-table td {
+    border-right-color: #334155;
+    border-right-color: var(--border);
+  }
+
+  .runs-table tbody {
+    background-color: #1e293b;
+    background-color: var(--card);
+  }
+
+  .runs-table tbody tr {
+    border-top-color: #334155;
+    border-top-color: var(--border);
+  }
+
+  .runs-table tbody tr:hover {
+    background-color: #0f172a;
+    background-color: var(--background);
+  }
+
+  .header-main,
+  .header-sub {
+    border-bottom-color: #475569;
+    border-bottom-color: var(--border);
+  }
+
+  .header-cell {
+    color: #e2e8f0;
+    color: var(--foreground);
+  }
+
+  .header-cell-fixed,
+  .header-cell-run {
+    background-color: #0f172a;
+    background-color: var(--background);
+  }
+
+  .status-group {
+    background-color: #312e81;
+    background-color: var(--primary-light);
+    color: var(--foreground);
+  }
+
+  .metrics-group {
+    background-color: #0c4a6e;
+    background-color: var(--info);
+    color: white;
+  }
+
+  .parameters-group {
+    background-color: #1e293b;
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  .cell-run {
+    color: #a5b4fc;
+    color: var(--primary);
+  }
+
+  .cell-run:hover {
+    color: #c7d2fe;
+    color: var(--primary-hover);
+  }
+
+  .border-right {
+    border-right-color: #334155;
+    border-right-color: var(--border);
+  }
+
+  .border-right-thick {
+    border-right-color: #475569;
+    border-right-color: var(--border);
+  }
+}

@@ -1,0 +1,88 @@
+.run-overview-container {
+  display: flex;
+  gap: 1.5rem;
+  height: 100%;
+  max-width: 100%;
+  animation: fadeIn var(--transition);
+}
+
+.left-column {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0; /* Prevents flex items from overflowing */
+}
+
+.right-column {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0; /* Prevents flex items from overflowing */
+}
+
+.card {
+  background-color: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+  overflow: hidden; /* Prevent content from overflowing */
+  border: 1px solid var(--border);
+  transition: all var(--transition);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary-light);
+}
+
+.section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: var(--foreground);
+  position: relative;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.params-card,
+.metrics-card {
+  flex: 0 1 auto; /* Allow cards to shrink/grow based on content */
+  display: flex;
+  flex-direction: column;
+}
+
+.params-card .section-title,
+.metrics-card .section-title {
+  flex: 0 0 auto;
+}
+
+.params-card > div:last-child,
+.metrics-card > div:last-child {
+  flex: 1;
+  overflow: auto; /* Add scrolling if content overflows */
+  max-height: 500px; /* Set max height to prevent excessive growth */
+}
+
+.information-card,
+.tags-card,
+.description-card,
+.insights-card {
+  flex: 0 0 auto;
+  height: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .run-overview-container {
+    flex-direction: column;
+  }
+
+  .left-column,
+  .right-column {
+    flex: 1;
+    width: 100%;
+  }
+}

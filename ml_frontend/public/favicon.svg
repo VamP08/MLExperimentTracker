@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="MLExperimentTracker">
+  <rect width="32" height="32" rx="7" fill="#6366f1"/>
+  <!-- A loss curve falling to a plateau: the one shape every training run draws. -->
+  <path d="M6 8 C 10 8, 11 17, 15 20 S 22 24, 26 24"
+        fill="none" stroke="#ffffff" stroke-width="2.75"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="26" cy="24" r="2.75" fill="#ffffff"/>
+</svg>

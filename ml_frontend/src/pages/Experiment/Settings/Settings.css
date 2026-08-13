@@ -1,0 +1,125 @@
+.settings-container {
+  width: 100%;
+  /* Ensure the container doesn't overflow its parent */
+  box-sizing: border-box;
+}
+
+.settings-card {
+  background-color: var(--card);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 24px;
+  width: 100%;
+  /* Ensure the card doesn't overflow its container */
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.settings-card h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 18px;
+  color: var(--foreground);
+}
+
+.form-group {
+  margin-bottom: 20px;
+  width: 100%;
+  /* Ensure form groups don't overflow */
+  box-sizing: border-box;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: var(--input);
+  color: var(--foreground);
+  /* Ensure inputs don't overflow */
+  box-sizing: border-box;
+}
+
+textarea.form-control {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.button-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.save-button {
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.save-button:hover {
+  background-color: var(--primary-hover);
+}
+
+.danger-card {
+  border-left: 4px solid var(--error);
+}
+
+.danger-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.danger-card p {
+  margin-top: 0;
+  margin-bottom: 0;
+  color: var(--card-foreground);
+  font-size: 14px;
+}
+
+.delete-button {
+  background-color: var(--error);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.delete-button:hover {
+  background-color: var(--error);
+  opacity: 0.9;
+}
+
+@media (max-width: 768px) {
+  .danger-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .danger-content .button-container {
+    margin-top: 8px;
+  }
+}

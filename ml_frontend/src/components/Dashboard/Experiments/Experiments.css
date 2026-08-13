@@ -1,0 +1,56 @@
+.experiments {
+  background-color: var(--card);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  transition: box-shadow var(--transition);
+}
+
+.experiments:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.experiments-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.experiments-title::before {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 1.25rem;
+  background-color: var(--primary);
+  border-radius: var(--radius-full);
+}
+
+.experiments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.experiment-item {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  background-color: var(--background);
+}
+
+.experiment-item:hover {
+  background-color: var(--input);
+  border-left-color: var(--primary);
+  transform: translateX(2px);
+}

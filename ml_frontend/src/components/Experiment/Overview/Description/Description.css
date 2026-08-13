@@ -1,0 +1,113 @@
+.run-description {
+  padding: 0;
+  height: auto;
+}
+
+.description-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+  color: var(--foreground);
+  position: relative;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.description-wrapper {
+  position: relative;
+}
+
+.description-text {
+  font-size: 0.9375rem;
+  color: var(--foreground);
+  line-height: 1.6;
+  margin-right: 3rem; /* Space for edit button */
+}
+
+.edit-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 0.375rem 0.75rem;
+  background-color: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: -3.7rem;
+}
+
+.edit-button:hover {
+  background-color: var(--background);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.description-edit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.description-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  font-family: inherit;
+  resize: vertical;
+  background-color: var(--input);
+  color: var(--foreground);
+  min-height: 100px;
+  transition: border-color var(--transition-fast);
+}
+
+.description-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.description-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.save-button,
+.cancel-button {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-weight: 500;
+}
+
+.save-button {
+  background-color: var(--primary);
+  color: white;
+  border: 1px solid var(--primary-dark);
+}
+
+.save-button:hover {
+  background-color: var(--primary-hover);
+}
+
+.cancel-button {
+  background-color: var(--input);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.cancel-button:hover {
+  background-color: var(--background);
+  border-color: var(--error);
+  color: var(--error);
+}

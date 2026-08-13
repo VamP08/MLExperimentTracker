@@ -1,0 +1,111 @@
+.activity-timeline {
+  width: auto;
+  height: auto;
+  animation: fadeIn var(--transition);
+  background-color: var(--card);
+  padding: 1.5rem;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  transition: box-shadow var(--transition);
+}
+
+.activity-timeline:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.timeline-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--foreground);
+}
+
+.timeline-expand-button {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  font-weight: 500;
+}
+
+.timeline-expand-button:hover {
+  background-color: var(--primary-light);
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+.timeline-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.timeline-item {
+  display: flex;
+  position: relative;
+  padding-bottom: 1.25rem;
+}
+
+.timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.timeline-item:last-child .timeline-line {
+  display: none;
+}
+
+.timeline-line {
+  position: absolute;
+  left: 1.25rem;
+  top: 2.5rem;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--border);
+}
+
+.timeline-icon {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background-color: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.timeline-icon span {
+  color: var(--primary-dark);
+  font-size: 1rem;
+}
+
+.timeline-content {
+  margin-left: 1rem;
+  padding-top: 0.25rem;
+}
+
+.timeline-date {
+  font-size: 0.875rem;
+  color: var(--card-foreground);
+  opacity: 0.7;
+  margin: 0 0 0.25rem 0;
+}
+
+.timeline-event {
+  color: var(--foreground);
+  margin: 0;
+  font-weight: 500;
+}

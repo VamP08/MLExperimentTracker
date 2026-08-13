@@ -1,0 +1,71 @@
+.overview-container {
+  display: flex;
+  gap: 1.5rem;
+  height: 100%;
+  animation: fadeIn var(--transition);
+}
+
+.left-column {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 0; /* Add this to allow proper flex shrinking */
+}
+
+.right-column {
+  flex: 1;
+}
+
+.card {
+  background-color: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  height: auto;
+  border: 1px solid var(--border);
+  transition: box-shadow var(--transition);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.card-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  color: var(--foreground);
+  position: relative;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-card {
+  margin-bottom: 1.5rem; /* Remove the margin-bottom */
+  flex: 0 0 auto; 
+  height: auto;
+}
+
+.timeline-card {
+  flex: 1; /* Let it take remaining space */
+  overflow-y: auto;
+  min-height: 200px; /* Give it a minimum height */
+  display: flex;
+  flex-direction: column;
+}
+
+.description-card {
+  height: 100%;
+}
+
+@media (max-width: 1024px) {
+  .overview-container {
+    flex-direction: column;
+  }
+
+  .right-column {
+    flex: none;
+  }
+}

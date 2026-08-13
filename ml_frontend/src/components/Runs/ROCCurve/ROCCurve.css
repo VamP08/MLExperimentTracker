@@ -1,0 +1,227 @@
+.roc-curve {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 12px;
+  padding: 24px;
+  color: #fff;
+}
+
+.roc-curve.loading,
+.roc-curve.error,
+.roc-curve.empty {
+  text-align: center;
+  padding: 48px;
+  font-size: 16px;
+  color: #aaa;
+}
+
+.roc-curve.error {
+  color: #ef4444;
+  background: linear-gradient(135deg, #2e1a1a 0%, #3e1616 100%);
+}
+
+.roc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.roc-header h3 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.curve-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.curve-selector label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #aaa;
+}
+
+.curve-selector select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 200px;
+}
+
+.curve-selector select:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.roc-chart {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.roc-svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.roc-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.metric-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+}
+
+.metric-card .metric-label {
+  font-size: 14px;
+  color: #aaa;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-card .metric-value {
+  font-size: 32px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.metric-card .metric-value.auc {
+  color: #10b981;
+}
+
+.metric-card .metric-interpretation {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.all-curves-summary {
+  margin-top: 32px;
+}
+
+.all-curves-summary h4 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.curves-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.curves-table thead {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.curves-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #3b82f6;
+  font-size: 14px;
+}
+
+.curves-table tbody tr {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.curves-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.curves-table tbody tr.selected {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.curves-table td {
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+.curves-table .auc-value {
+  font-family: 'Courier New', monospace;
+  font-weight: 500;
+  color: #10b981;
+}
+
+.curves-table .quality {
+  font-weight: 500;
+}
+
+.curves-table .quality.excellent {
+  color: #10b981;
+}
+
+.curves-table .quality.good {
+  color: #3b82f6;
+}
+
+.curves-table .quality.fair {
+  color: #f59e0b;
+}
+
+.curves-table .quality.poor {
+  color: #ef4444;
+}
+
+.curves-table .quality.very-poor {
+  color: #991b1b;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .roc-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .curve-selector select {
+    min-width: 100%;
+  }
+
+  .roc-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .roc-chart {
+    padding: 10px;
+  }
+}
