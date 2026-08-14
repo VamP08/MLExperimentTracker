@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import "./Experiment.css";
@@ -7,9 +5,8 @@ import "./Experiment.css";
 // Components
 import Overview from "./Overview/Overview";
 import Runs from "./Runs/Runs";
-import Settings from "./Settings/Settings";
 
-type TabType = "overview" | "runs" | "settings";
+type TabType = "overview" | "runs";
 
 interface ExperimentProps {
   experimentId: string | null;
@@ -100,8 +97,6 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
         return <Overview experimentId={experiment._id} />;
       case "runs":
         return <Runs experimentId={experiment._id} onRunSelect={onRunSelect} />;
-      case "settings":
-        return <Settings />;
       default:
         return null;
     }
@@ -126,7 +121,7 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
 
         <div className="tabs-container">
           <div className="tabs">
-            {(["overview", "runs", "settings"] as TabType[]).map((tab) => (
+            {(["overview", "runs"] as TabType[]).map((tab) => (
               <button
                 key={tab}
                 className={`tab ${activeTab === tab ? "active" : ""}`}

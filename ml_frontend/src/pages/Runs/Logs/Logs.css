@@ -1,3 +1,8 @@
+/* Every class here is prefixed `logs-`. CSS in this app is global (GAPS N16 counts the
+   collisions), and the generic names this file used to carry — `.log-entry`, `.log-level`,
+   `.log-message` — are exactly the shape that collides with the next component to want
+   one. */
+
 .logs-page {
   padding: 20px;
 }
@@ -6,112 +11,230 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
 }
 
 .logs-header h2 {
   font-size: 1.5rem;
   font-weight: 600;
   color: var(--foreground);
+  margin: 0;
 }
 
 .logs-controls {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
 }
 
-.log-level-filter {
+.logs-filter-label {
+  font-size: 0.8125rem;
+  color: var(--card-foreground);
+}
+
+.logs-level-filter {
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background-color: var(--card);
   font-size: 0.875rem;
   color: var(--foreground);
 }
 
-.download-logs-button {
+.logs-download-button {
   padding: 8px 16px;
   background-color: var(--input);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   color: var(--foreground);
+  text-decoration: none;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color var(--transition);
 }
 
-.download-logs-button:hover {
+.logs-download-button:hover {
   background-color: var(--background);
+}
+
+/* Loading, error and "nothing was recorded" all land here. They are deliberately the same
+   shape as `.checkpoints-empty` and `.run-shell-message` elsewhere: an empty log is the
+   ordinary state of most runs and must not be dressed as a fault. */
+.logs-status {
+  padding: 24px;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--card-foreground);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.logs-status code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background-color: var(--input);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.logs-status-error {
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .logs-container {
   background-color: var(--card);
-  border-radius: 8px;
-  padding: 16px;
-  font-family: monospace;
-  height: 500px;
-  overflow-y: auto;
   border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  max-height: 560px;
+  overflow-y: auto;
 }
 
-.log-entry {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
+.logs-entry {
   display: flex;
-  font-size: 0.875rem;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
 }
 
-.log-entry:last-child {
+.logs-entry:last-child {
   border-bottom: none;
 }
 
-.log-timestamp {
+/* Elapsed seconds since the run started, tabular so the column stays a column. */
+.logs-elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   color: var(--card-foreground);
-  margin-right: 16px;
+  opacity: 0.75;
   flex-shrink: 0;
-  width: 180px;
+  width: 74px;
+  text-align: right;
 }
 
-.log-level {
-  margin-right: 16px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
+.logs-level {
   flex-shrink: 0;
-  width: 60px;
+  width: 62px;
   text-align: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ffffff;
 }
 
-.log-level.info {
+/* Deliberately the quietest chip in the set, and coloured from `--border` rather than
+   dimmed with opacity: opacity would take the label down with the background and leave
+   white-on-pale in the light theme. */
+.logs-level-debug {
+  background-color: var(--border);
+  color: var(--card-foreground);
+}
+
+.logs-level-info {
   background-color: var(--info);
-  color: white;
 }
 
-.log-level.warning {
+.logs-level-warning {
   background-color: var(--warning);
   color: #111827;
 }
 
-.log-level.error {
+.logs-level-error {
   background-color: var(--error);
-  color: white;
 }
 
-.log-message {
+/* Critical is error, outlined rather than recoloured — the palette has four semantic
+   tokens and inventing a fifth colour here would put a value in the theme that the theme
+   does not define. */
+.logs-level-critical {
+  background-color: var(--error);
+  box-shadow: 0 0 0 2px var(--error), 0 0 0 3px var(--card);
+}
+
+/* A level outside the closed vocabulary. Shown verbatim, styled as nothing in particular. */
+.logs-level-unknown {
+  background-color: var(--input);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+}
+
+.logs-source {
+  flex-shrink: 0;
+  width: 54px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--card-foreground);
+  opacity: 0.7;
+}
+
+/* Monospace, and it keeps the newlines: a traceback is one record with line breaks in it
+   (DATA-CONTRACT §3.11), and collapsing them would make the one thing people open this tab
+   for unreadable. */
+.logs-message {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
   color: var(--foreground);
-  word-break: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.log-entry.info .log-message {
-  color: var(--foreground);
+.logs-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
 }
 
-.log-entry.warning .log-message {
-  color: var(--warning);
+.logs-count {
+  font-size: 0.8125rem;
+  color: var(--card-foreground);
 }
 
-.log-entry.error .log-message {
+.logs-more-error {
   color: var(--error);
+}
+
+.logs-more-button {
+  padding: 7px 14px;
+  background-color: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  transition: background-color var(--transition);
+}
+
+.logs-more-button:hover:not(:disabled) {
+  background-color: var(--background);
+}
+
+.logs-more-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .logs-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .logs-entry {
+    flex-wrap: wrap;
+  }
+
+  .logs-message {
+    flex-basis: 100%;
+  }
 }

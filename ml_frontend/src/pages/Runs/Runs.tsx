@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import "./Runs.css";
@@ -10,12 +8,11 @@ import RunParams from "./RunParams/RunParams";
 import Logs from "./Logs/Logs";
 import Metrics from "./Metrics/Metrics";
 import Evaluation from "./Evaluation/Evaluation";
-import Settings from "./Settings/Settings";
 import SystemMetrics from "../../components/Runs/SystemMetrics/SystemMetrics";
 import Checkpoints from "../../components/Runs/Checkpoints/Checkpoints";
 import Artifacts from "../../components/Runs/Artifacts/Artifacts";
 
-type TabType = "overview" | "run-params" | "logs" | "metrics" | "evaluation" | "system-metrics" | "checkpoints" | "artifacts" | "settings";
+type TabType = "overview" | "run-params" | "logs" | "metrics" | "evaluation" | "system-metrics" | "checkpoints" | "artifacts";
 
 const TABS: TabType[] = [
   "overview",
@@ -26,7 +23,6 @@ const TABS: TabType[] = [
   "checkpoints",
   "artifacts",
   "logs",
-  "settings",
 ];
 
 interface RunsProps {
@@ -101,7 +97,7 @@ const Runs = ({ runId }: RunsProps) => {
       case "run-params":
         return <RunParams runId={run._id} />;
       case "logs":
-        return <Logs />;
+        return <Logs runId={run._id} />;
       case "metrics":
         return <Metrics runId={run._id} />;
       case "evaluation":
@@ -112,8 +108,6 @@ const Runs = ({ runId }: RunsProps) => {
         return <Checkpoints runId={run._id} />;
       case "artifacts":
         return <Artifacts runId={run._id} />;
-      case "settings":
-        return <Settings />;
       default:
         return null;
     }
