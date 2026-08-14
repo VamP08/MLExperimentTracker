@@ -188,6 +188,24 @@ def _locate_run(storage: Storage, run_id: str) -> tuple[str, dict] | None:
     return project, run
 
 
+def _read_logs(
+    storage: Storage,
+    project: str,
+    run_id: str,
+    level: str | None,
+    limit: int | None,
+    offset: int,
+) -> list[dict]:
+    """Positional wrapper for the threadpool hop.
+
+    :meth:`Storage.read_logs` takes its filters keyword-only — they are three optional
+    values of two types and a positional call site would be unreadable — and
+    ``run_in_threadpool`` passes positionals. One adapter here is cheaper than loosening the
+    storage signature for the convenience of a transport.
+    """
+    return storage.read_logs(project, run_id, level=level, limit=limit, offset=offset)
+
+
 def _verify_report(storage: Storage, project: str, run_id: str) -> Any:
     """Re-check a run's recorded world against the one that exists now.
 
@@ -415,6 +433,46 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
     async def metrics(run_id: str) -> list[dict]:
         project, _ = await locate(run_id)
         return await _read(store.read_metrics, project, run_id)
+
+    @app.get("/api/run/{run_id}/logs/download", response_model=None)
+    async def download_logs(run_id: str) -> Response:
+        """The whole log as a plain-text attachment.
+
+        A run that captured nothing downloads an empty file rather than answering 404,
+        matching the metrics export two handlers up: both are exports of a file that may
+        legitimately be empty, and a client that has to distinguish "no logs" from "no run"
+        already has the 404 from the run lookup to do it with. The provenance patch route
+        chooses the opposite because a patch is evidence — its absence is a fact about the
+        run, not an empty document.
+        """
+        project, _ = await locate(run_id)
+        text = await _read(store.read_logs_text, project, run_id)
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": "attachment; filename="
+                f'"{_attachment_filename(run_id + "_logs", "txt")}"'
+            },
+        )
+
+    @app.get("/api/run/{run_id}/logs", response_model=None)
+    async def logs(
+        run_id: str,
+        level: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Captured run output, oldest first, as a bare array.
+
+        Paging is offered rather than required: a long run's log is the largest thing this
+        API can return, and a client that renders a tail wants the last page, not eight
+        megabytes of JSON. An unknown ``level`` filters everything out instead of erroring
+        — the vocabulary is closed and a filter nobody can satisfy is an empty list, which
+        is exactly what the caller asked for.
+        """
+        project, _ = await locate(run_id)
+        return await _read(_read_logs, store, project, run_id, level, limit, offset)
 
     @app.get("/api/run/{run_id}/system-metrics", response_model=None)
     async def system_metrics(run_id: str) -> Any:

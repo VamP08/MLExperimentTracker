@@ -45,6 +45,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -68,6 +69,9 @@ from .contract import (
     TERMINAL_STATES,
     RunState,
 )
+from .logs import DEFAULT_MAX_BYTES, LogWriter
+from .logs import flush_pending as _flush_pending_logs
+from .logs import install as _install_logs
 from .storage import Storage
 from .system import DEFAULT_INTERVAL, SystemSampler
 
@@ -224,10 +228,29 @@ def _finish_active(state: RunState) -> None:
                 pass
 
 
+def _record_traceback(
+    exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None, state: RunState
+) -> None:
+    """Write the traceback into every live run's log before the run stops accepting records.
+
+    It is recorded here rather than captured off ``stderr``, even though the interpreter is
+    about to print it there, because the order the hooks run in makes the stream route
+    unreliable: the terminal state has to be written before control leaves this function,
+    and by the time the previous excepthook prints, the streams have been restored. Writing
+    it explicitly also survives an excepthook that prints somewhere else entirely.
+
+    A traceback is one event, so it is one record — a stack split into a record per frame
+    would be filtered, paged and interleaved apart.
+    """
+    for run in list(_ACTIVE.values()):
+        run._record_exception(exc_type, exc, tb, state)
+
+
 def _excepthook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
     """An unhandled exception means ``failed`` — the single most important status the
     format can carry, because the alternative is a crashed run that reads as running."""
     state = RunState.INTERRUPTED if issubclass(exc_type, KeyboardInterrupt) else RunState.FAILED
+    _record_traceback(exc_type, exc, tb, state)
     _finish_active(state)
     hook = _PREVIOUS_EXCEPTHOOK or sys.__excepthook__
     hook(exc_type, exc, tb)
@@ -299,6 +322,9 @@ class Run:
         provenance: bool = True,
         capture_diff: bool = True,
         datasets: Sequence[str | os.PathLike[str]] | None = None,
+        capture_output: bool = True,
+        capture_logging: bool = True,
+        log_limit_bytes: int = DEFAULT_MAX_BYTES,
     ) -> None:
         self._storage = storage
         self._project = project
@@ -315,6 +341,9 @@ class Run:
         self._state = RunState.INITIALIZED
         self._finished = False
         self._sampler: SystemSampler | None = None
+        self._log_limit_bytes = int(log_limit_bytes)
+        self._log_writer: LogWriter | None = None
+        self._uninstall_logs: Any = None
         #: The manifest as it exists **on disk**, or ``None`` when capture was disabled,
         #: failed, or could not be written. Keeping the in-memory copy in step with the
         #: file is what lets :meth:`log_dataset` amend a manifest rather than invent one.
@@ -347,6 +376,22 @@ class Run:
 
         if config is not None:
             self._storage.write_json(self._dir / CONFIG_FILE, flatten_config(config))
+
+        # Armed before provenance capture, so that anything the capture path reports about
+        # a missing git binary or an unreadable dataset is recorded in the run it concerns
+        # rather than only in a terminal the user has already closed. The writer exists
+        # whatever the flags say: `log_text()` is an explicit call and must work even when
+        # nothing is being captured implicitly.
+        self._log_writer = LogWriter(
+            storage,
+            project,
+            run_id,
+            start_time=self._epoch_start,
+            max_bytes=self._log_limit_bytes,
+        )
+        self._uninstall_logs = _install_logs(
+            self, capture_output=capture_output, capture_logging=capture_logging
+        )
 
         if provenance:
             self._capture_provenance(datasets, capture_diff=capture_diff)
@@ -536,6 +581,26 @@ class Run:
                 "only in case or separator collide",
                 stacklevel=5,
             )
+
+    def log_text(self, message: str, *, level: str = "info") -> None:
+        """Record one line in the run's log, under source ``user``.
+
+        The explicit half of log capture. ``print`` and ``logging`` are captured
+        automatically, and this exists for the line a script wants in the record without
+        putting it on somebody's terminal — a chosen seed, a resolved device, the shape of
+        a batch — and for a program whose output goes somewhere this process cannot see.
+
+        Unlike :meth:`log` this does not raise on a bad level: the vocabulary is normalised
+        rather than validated, because a logging call that fails the run over a spelling is
+        the failure mode the whole capture path is built to avoid. It *does* raise after
+        ``finish()``, which is a programming error rather than an environmental one, and
+        the same rule :meth:`log` follows.
+        """
+        with self._lock:
+            self._require_live()
+            writer = self._log_writer
+        if writer is not None:
+            writer.write(message, level=level, source="user")
 
     # ----------------------------------------------------------------------------------
     # Artifacts
@@ -903,7 +968,14 @@ class Run:
 
         if notes is not None:
             self._notes = notes
-        self._write_summary(terminal)
+        try:
+            self._write_summary(terminal)
+        finally:
+            # In a `finally`, and last: a run that leaves `sys.stdout` replaced has broken
+            # every `print` for the rest of the process, and it would break them by writing
+            # into a run directory that is already terminal. A failed summary write is a
+            # lost status; a stream left wrapped is a broken interpreter.
+            self._close_logs()
         logger.info("run %s finished: %s", self._run_id, terminal.value)
 
     def __enter__(self) -> Run:
@@ -922,15 +994,23 @@ class Run:
         """
         if exc_type is None:
             self.finish(RunState.COMPLETED)
-        elif issubclass(exc_type, KeyboardInterrupt):
-            self.finish(RunState.INTERRUPTED)
+            return False
+
+        if issubclass(exc_type, KeyboardInterrupt):
+            state = RunState.INTERRUPTED
         elif issubclass(exc_type, SystemExit):
             code = getattr(exc, "code", 0)
-            self.finish(
-                RunState.COMPLETED if code in (None, 0) else RunState.FAILED
-            )
+            state = RunState.COMPLETED if code in (None, 0) else RunState.FAILED
         else:
-            self.finish(RunState.FAILED)
+            state = RunState.FAILED
+
+        # Before `finish`, which closes the log: the traceback is the single most useful
+        # thing a failed run can hold, and here it is handed to us rather than inferred from
+        # whatever the interpreter later prints. A `with` block whose exception the caller
+        # catches never reaches the excepthook at all, so this is the only chance.
+        if state is not RunState.COMPLETED:
+            self._record_exception(exc_type, exc, tb, state)
+        self.finish(state)
         return False
 
     # ----------------------------------------------------------------------------------
@@ -939,6 +1019,51 @@ class Run:
 
     def _elapsed(self) -> float:
         return time.monotonic() - self._monotonic_start
+
+    def _record_exception(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+        state: RunState,
+    ) -> None:
+        """Record the traceback that ended the run. Swallows everything."""
+        writer = self._log_writer
+        if writer is None or exc_type is None:
+            return
+        # First, so that a `print` with no trailing newline — very often the last thing a
+        # crashing script wrote — lands before the traceback rather than after it.
+        _flush_pending_logs(self)
+        try:
+            text = "".join(traceback.format_exception(exc_type, exc, tb)).rstrip("\n")
+        except Exception:  # noqa: BLE001 - an exit path may not raise
+            return
+        # A Ctrl-C is a decision rather than a defect, and filing it under `error` would put
+        # it in the bucket a user searches when something went wrong.
+        level = "warning" if state is RunState.INTERRUPTED else "error"
+        writer.write(text, level=level, source="stderr")
+
+    def _close_logs(self) -> None:
+        """Restore the streams and stop the writer. Swallows everything, deliberately.
+
+        Reached from ``finish()``, which is itself reached from an excepthook, a signal
+        handler and an ``atexit`` hook — none of which may raise. An exception here would
+        either replace a user's traceback with this module's, or land at an arbitrary
+        bytecode boundary in their code.
+        """
+        uninstall, self._uninstall_logs = self._uninstall_logs, None
+        if uninstall is None:
+            return
+        try:
+            uninstall()
+        except BaseException:  # noqa: BLE001 - an exit path may not raise, ever
+            try:
+                warnings.warn(
+                    f"could not restore the captured streams for run {self._run_id}",
+                    stacklevel=2,
+                )
+            except Exception:  # pragma: no cover - warnings machinery may be gone
+                pass
 
     def _require_live(self) -> None:
         if self._finished:
@@ -1021,6 +1146,9 @@ def init(
     provenance: bool = True,
     capture_diff: bool = True,
     datasets: Sequence[str | os.PathLike[str]] | None = None,
+    capture_output: bool = True,
+    capture_logging: bool = True,
+    log_limit_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Run:
     """Start a run: create its directory, write ``metadata.json``, arm the exit hooks.
 
@@ -1054,6 +1182,20 @@ def init(
     recorded rather than silent, and it is a separate file so it can be deleted without
     destroying the record that it existed. Turn it off for a tree you would not paste into
     a chat window. Set ``provenance=False`` to write nothing at all.
+
+    **Output capture is on by default**, and it is the one default here that changes what
+    the *process* does rather than only what is written: ``sys.stdout`` and ``sys.stderr``
+    are wrapped for the life of the run, and the root logger gains a handler. Both keep
+    doing what they did — the terminal still receives every byte, existing logging handlers
+    are untouched — and both are put back exactly as they were when the run finishes, on
+    every exit path including a crash. It is on because a run whose output was not recorded
+    cannot answer the first question anybody asks of a failure, and because a user who has
+    to remember a flag will remember it after the run they needed it for.
+
+    ``capture_output=False`` leaves the streams alone, ``capture_logging=False`` installs no
+    handler, and ``log_text()`` still works with both off. ``log_limit_bytes`` bounds the
+    file: on reaching it capture stops and says so in one final record, because a log that
+    ends silently part-way through is read as the end of the run.
     """
     storage = Storage(storage_path)
     project = _resolve_project(storage, project)
@@ -1078,6 +1220,9 @@ def init(
         provenance=provenance,
         capture_diff=capture_diff,
         datasets=datasets,
+        capture_output=capture_output,
+        capture_logging=capture_logging,
+        log_limit_bytes=log_limit_bytes,
     )
 
 

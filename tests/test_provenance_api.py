@@ -105,19 +105,24 @@ EXPECTED_ROUTES = {
     ("/api/run/{run_id}/provenance", "GET"),
     ("/api/run/{run_id}/patch", "GET"),
     ("/api/run/{run_id}/verify", "GET"),
+    ("/api/run/{run_id}/logs/download", "GET"),
+    ("/api/run/{run_id}/logs", "GET"),
     ("/api/run/{run_id}", "GET"),
     ("/api/run", "GET"),
     ("/api/run/{run_id}/tags", "PATCH"),
     ("/api/run/{run_id}/description", "PATCH"),
 }
 
-#: The seventeen that existed before format 1.1. `tests/test_parity.py` diffs the read
-#: half of these against the Express service, so an addition must be an addition and
-#: nothing else.
+#: The seventeen that existed before format 1.1 — three landed with the provenance
+#: manifest and two more with log capture in 1.2. `tests/test_parity.py` diffs the read
+#: half of the original seventeen against the Express service, so an addition must be an
+#: addition and nothing else.
 PRE_1_1_ROUTES = EXPECTED_ROUTES - {
     ("/api/run/{run_id}/provenance", "GET"),
     ("/api/run/{run_id}/patch", "GET"),
     ("/api/run/{run_id}/verify", "GET"),
+    ("/api/run/{run_id}/logs", "GET"),
+    ("/api/run/{run_id}/logs/download", "GET"),
 }
 
 
@@ -166,7 +171,7 @@ def _api_routes(app: object) -> set[tuple[str, str]]:
 
 
 def test_the_existing_route_set_is_unchanged(root: Path) -> None:
-    """The three new routes are additive: nothing that existed before moved or vanished."""
+    """The new routes are additive: nothing that existed before moved or vanished."""
     app = create_app(Storage(root), static_dir=root / "no-bundle")
     found = _api_routes(app)
     assert PRE_1_1_ROUTES <= found

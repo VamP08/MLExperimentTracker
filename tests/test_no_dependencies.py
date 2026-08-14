@@ -88,6 +88,10 @@ _SCRIPT = textwrap.dedent(
         )
         for step in range(5):
             run.log({{"loss": 1.0 / (step + 1), "accuracy": 0.5 + step * 0.1}}, step=step)
+        # Output capture is on by default, so this exercises the tee, the logging handler
+        # and the log writer as well as recording a line.
+        print("epoch 1/1 done")
+        run.log_text("explicit line", level="warning")
         run.log_confusion_matrix(labels=["a", "b"], matrix=[[5, 1], [2, 4]], accuracy=0.75)
         run.log_checkpoint("epoch_4", step=4)
         run.finish()
@@ -102,6 +106,12 @@ _SCRIPT = textwrap.dedent(
         assert len(storage.read_metrics(project, run_id)) == 2, "expected loss and accuracy"
         assert len(storage.read_artifacts(project, run_id)) == 1
         assert len(storage.read_checkpoints(project, run_id)) == 1
+
+        logged = storage.read_logs(project, run_id)
+        assert "epoch 1/1 done" in [record["message"] for record in logged], logged
+        warned = storage.read_logs(project, run_id, level="warning")
+        assert "explicit line" in [record["message"] for record in warned], warned
+        assert storage.read_logs_text(project, run_id).count("\\n") >= len(logged)
 
         # Provenance capture is the newest place a convenience dependency could creep in:
         # it wants a git library, a hashing helper and an NVML binding, and all three are

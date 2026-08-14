@@ -33,6 +33,8 @@ from .contract import (
     CONFIG_DROP_KEYS,
     CONFIG_FILE,
     DEFAULT_STORAGE_DIRNAME,
+    LOG_LEVELS,
+    LOGS_FILE,
     METADATA_FILE,
     METRICS_FILE,
     PATCH_FILE,
@@ -587,6 +589,72 @@ class Storage:
             )
         return artifacts
 
+    def read_logs(
+        self,
+        project: str,
+        run_id: str,
+        *,
+        level: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Captured run output, oldest first, optionally filtered and paged.
+
+        ``level`` selects one severity exactly rather than "this level and above": the
+        vocabulary is a flat enum on disk with no ordering recorded anywhere, so ranking it
+        would be this method inventing a hierarchy that the writer never asserted. A UI
+        that wants "warnings and worse" asks twice, which is honest about what the file
+        says. The comparison folds case, because the value arrives from a query string, and
+        a level outside the vocabulary matches nothing — a filter that quietly stopped
+        filtering would show a user exactly the records they asked to be rid of.
+
+        ``offset`` then ``limit``, both clamped rather than validated — this is a read path
+        and every other read here answers an unanswerable question with an empty list. A
+        negative offset is zero, a negative or zero limit is no rows, and an offset past
+        the end is no rows.
+
+        A torn final line is dropped and the rest of the file is returned, exactly as
+        :meth:`read_jsonl` does for ``metrics.jsonl``, which is what makes appending from a
+        live training process safe to read at any moment.
+        """
+        run_dir = self.run_path(project, run_id)
+        if run_dir is None:
+            return []
+        records = self.read_jsonl(run_dir / LOGS_FILE)
+
+        if level is not None:
+            wanted = level.strip().lower() if isinstance(level, str) else ""
+            if wanted not in LOG_LEVELS:
+                return []
+            records = [
+                record
+                for record in records
+                if isinstance(record.get("level"), str)
+                and record["level"].strip().lower() == wanted
+            ]
+
+        start = max(0, int(offset))
+        if limit is None:
+            return records[start:]
+        count = int(limit)
+        if count <= 0:
+            return []
+        return records[start : start + count]
+
+    def read_logs_text(self, project: str, run_id: str) -> str:
+        """The same records rendered as plain text, for the download button.
+
+        One line per record: the elapsed seconds the chart's x-axis uses, the level, the
+        source, then the message verbatim. Elapsed rather than wall clock because that is
+        the clock the rest of the run is recorded against — a log line and a metric point
+        at ``74.1`` are the same instant — and the wall-clock ``absolute_timestamp`` is a
+        field away in the JSONL for anyone correlating against another machine's log.
+
+        Rendering here rather than in the route keeps every read of the file in this
+        module, and means the CLI and the API produce byte-identical downloads.
+        """
+        return "".join(_log_line(record) for record in self.read_logs(project, run_id))
+
     def export_metrics_csv(self, project: str, run_id: str) -> str:
         """Union of every key across every row, alphabetically, one row per line.
 
@@ -727,6 +795,34 @@ class Storage:
                 handle.flush()
         except OSError as exc:
             raise StorageError(f"could not append to {path}: {exc}") from exc
+
+    def append_log(self, project: str, run_id: str, record: dict) -> bool:
+        """Append one record to ``logs.jsonl``. Never raises; returns whether it landed.
+
+        Two differences from :meth:`append_jsonl`, both of which are the reason this is a
+        method rather than a call site. It reports failure instead of raising, because the
+        only caller is a capture path attached to somebody's training loop and a tracker
+        that can kill a training job over a full disk is a tracker nobody attaches to a job
+        that matters. And it refuses to create the run directory: ``append_jsonl`` makes
+        parents, so a mistyped run ID would otherwise materialise a directory holding logs
+        and no ``metadata.json`` — a run the dashboard cannot open but still counts against
+        the project's success rate.
+
+        The record is written as given. Storage validates nothing anywhere else and would
+        be the wrong place to start: the writer that builds these records
+        (:class:`~mlexperimenttracker.logs.LogWriter`) owns the vocabulary, and a silent
+        repair here would hide a writer bug rather than fix it.
+        """
+        if not isinstance(record, dict):
+            return False
+        run_dir = self.run_path(project, run_id)
+        if run_dir is None or not run_dir.is_dir():
+            return False
+        try:
+            self.append_jsonl(run_dir / LOGS_FILE, record)
+        except StorageError:
+            return False
+        return True
 
     def write_provenance(
         self, project: str, run_id: str, manifest: dict, patch: bytes | None
@@ -1040,6 +1136,28 @@ def _parse_iso(value: Any) -> float | None:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     return moment.timestamp()
+
+
+def _log_line(record: dict) -> str:
+    """One log record as a line of text, degrading field by field.
+
+    Every field is optional here even though the writer emits all four: this renders
+    whatever is on disk, including a file another tool appended to, and a download that
+    dropped the lines it did not fully understand would be the wrong kind of tidy.
+    """
+    timestamp = record.get("timestamp")
+    stamp = f"{float(timestamp):10.3f}s" if _is_number(timestamp) else " " * 11
+    level = record.get("level")
+    level = level.upper() if isinstance(level, str) else ""
+    source = record.get("source")
+    source = source if isinstance(source, str) else ""
+    message = record.get("message")
+    if not isinstance(message, str):
+        message = "" if message is None else _csv_value(message)
+    # Column widths hold the longest member of each vocabulary — `critical` and `logging`
+    # — so the message column starts in the same place on every line and a grep of the
+    # download reads as a table rather than as ragged prose.
+    return f"[{stamp}] {level:<8} {source:<7} {message}\n"
 
 
 def _csv_value(value: Any) -> str:

@@ -43,6 +43,7 @@ from .contract import (
     CHECKPOINTS_DIR,
     CONFIG_FILE,
     FORMAT_VERSION,
+    LOGS_FILE,
     METRICS_FILE,
     SUMMARY_FILE,
     SYSTEM_METRICS_FILE,
@@ -79,6 +80,11 @@ _DECAY = 6.0
 _DIVERGE_RATIO = 8.0
 _DIVERGE_START = 0.30
 _DIVERGE_RATE = 5.5
+
+#: Validation loss above this is a run that is no longer training, and the log says so at
+#: ``warning``. Read off the curve rather than off the plan: an epoch is called bad when
+#: its number is bad, which is the same judgement a reader makes looking at the chart.
+_DIVERGED_LOSS = 4.0
 
 #: Gradient noise scales with 1/sqrt(batch), which is why the small-batch runs look ragged
 #: and the large-batch runs look smooth. Same reason it does in a real training loop.
@@ -567,15 +573,18 @@ def _write_run(store: Storage, plan: _RunPlan, rng: Random) -> str:
     }
     run_dir = store.create_run(project.name, run_id, metadata)
 
-    # Both line-oriented files are appended to, so a re-run over an existing tree has to
+    # Every line-oriented file is appended to, so a re-run over an existing tree has to
     # start from empty or the series doubles.
-    for name in (METRICS_FILE, ARTIFACTS_FILE):
+    for name in (METRICS_FILE, ARTIFACTS_FILE, LOGS_FILE):
         _truncate(run_dir / name)
 
     store.write_json(run_dir / CONFIG_FILE, _config(plan, config_seed))
 
     for row in rows:
         store.append_jsonl(run_dir / METRICS_FILE, row)
+
+    for record in _log_records(plan, run_id, rows, epoch_ends, created_epoch, duration):
+        store.append_log(project.name, run_id, record)
 
     for filename, sidecar in _checkpoints(plan, rows, epoch_ends, created):
         store.write_json(run_dir / CHECKPOINTS_DIR / f"{filename}.json", sidecar)
@@ -601,6 +610,100 @@ def _write_run(store: Storage, plan: _RunPlan, rng: Random) -> str:
             },
         )
     return run_id
+
+
+def _log_records(
+    plan: _RunPlan,
+    run_id: str,
+    rows: list[dict[str, Any]],
+    epoch_ends: dict[int, int],
+    created_epoch: float,
+    duration: float,
+) -> list[dict[str, Any]]:
+    """The run's captured output, derived from the numbers already on the chart.
+
+    Every line quotes a value that is in ``metrics.jsonl`` at the same timestamp, so a
+    reviewer who reads the log and then reads the chart finds the same run described
+    twice rather than two unrelated fictions. Nothing here is sampled.
+
+    The four sources and four of the five levels all appear, because the level filter and
+    the source column are the parts of the Logs tab that cannot be demonstrated by a run
+    that only ever printed ``info`` to stdout — and a run that ended badly says so on the
+    stream it would have said it on.
+    """
+    project = plan.project
+    records: list[dict[str, Any]] = []
+
+    def emit(elapsed: float, message: str, *, level: str = "info", source: str = "stdout") -> None:
+        records.append(
+            {
+                "timestamp": round(elapsed, 2),
+                "absolute_timestamp": round(created_epoch + elapsed, 2),
+                "level": level,
+                "message": message,
+                "source": source,
+            }
+        )
+
+    emit(0.0, f"run {run_id} started", source="logging")
+    emit(
+        round(project.startup_seconds * 0.4, 2),
+        f"loading {project.dataset}: {project.train_size} train / {project.eval_size} eval "
+        f"examples, {len(project.classes)} classes",
+    )
+    emit(
+        project.startup_seconds,
+        f"training {project.model} for {plan.epochs} epochs - batch size {plan.batch_size}, "
+        f"{plan.optimizer}, lr {plan.learning_rate:g}",
+    )
+
+    for epoch in sorted(epoch_ends):
+        row = rows[epoch_ends[epoch]]
+        elapsed = float(row["timestamp"])
+        message = (
+            f"epoch {epoch}/{plan.epochs} step {row['step']} - "
+            f"loss {row['loss']:.4f} acc {row['accuracy']:.4f} "
+            f"val_loss {row['val_loss']:.4f} val_acc {row['val_accuracy']:.4f}"
+        )
+        # The diverging run is the reason the level filter exists: its loss is on the chart
+        # climbing, and the log has to be the thing that says so in words.
+        level = "warning" if float(row["loss"]) > _DIVERGED_LOSS else "info"
+        emit(elapsed, message, level=level)
+        if level == "warning":
+            emit(
+                elapsed + 0.05,
+                f"loss has increased for {epoch} consecutive validations; "
+                "the learning rate is too high for this schedule",
+                level="warning",
+                source="stderr",
+            )
+
+    last = float(rows[-1]["timestamp"]) if rows else 0.0
+    if plan.state is RunState.COMPLETED:
+        best = min(
+            (rows[index] for index in epoch_ends.values()),
+            key=lambda row: row["val_loss"],
+            default=None,
+        )
+        if best is not None:
+            emit(last + 0.4, f"best checkpoint: step {best['step']}, val_loss {best['val_loss']:.4f}")
+        emit(duration, f"training complete in {duration:g}s", source="logging")
+    elif plan.state is RunState.FAILED:
+        emit(
+            last + 0.3,
+            "Traceback (most recent call last):\n"
+            '  File "train.py", line 118, in <module>\n'
+            "    main()\n"
+            '  File "train.py", line 96, in main\n'
+            "    loss.backward()\n"
+            "RuntimeError: CUDA out of memory. Tried to allocate 512.00 MiB",
+            level="error",
+            source="stderr",
+        )
+    elif plan.state is RunState.INTERRUPTED:
+        emit(last + 0.2, "KeyboardInterrupt", level="warning", source="stderr")
+
+    return records
 
 
 def _teardown_seconds(state: RunState) -> float:

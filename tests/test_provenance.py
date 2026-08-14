@@ -619,7 +619,11 @@ def test_an_unaddressable_name_is_refused_by_every_provenance_method(
 
 
 def test_the_format_version_is_bumped_for_the_manifest() -> None:
-    assert contract.FORMAT_VERSION == "1.1"
+    # A floor rather than an equality: later additive bumps are the point of the minor
+    # half, and the manifest cannot un-land. Compared as integers because "1.10" sorts
+    # below "1.2" as a string.
+    major, minor = (int(part) for part in contract.FORMAT_VERSION.split(".")[:2])
+    assert (major, minor) >= (1, 1)
     assert contract.PROVENANCE_FILE == "provenance.json"
     assert contract.PATCH_FILE == "uncommitted.patch"
 

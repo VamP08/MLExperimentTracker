@@ -1,0 +1,5 @@
+{"timestamp": 0.0, "absolute_timestamp": 1785987843.48, "level": "info", "message": "run agnews-distilbert_20260806T034403Z_d253 started", "source": "logging"}
+{"timestamp": 9.52, "absolute_timestamp": 1785987853.0, "level": "info", "message": "loading ag_news: 120000 train / 7600 eval examples, 4 classes", "source": "stdout"}
+{"timestamp": 23.8, "absolute_timestamp": 1785987867.28, "level": "info", "message": "training distilbert-base-uncased for 3 epochs - batch size 64, adamw, lr 5e-05", "source": "stdout"}
+{"timestamp": 168.9, "absolute_timestamp": 1785988012.38, "level": "info", "message": "epoch 1/3 step 1875 - loss 0.3781 acc 0.8286 val_loss 0.3908 val_acc 0.8181", "source": "stdout"}
+{"timestamp": 313.9, "absolute_timestamp": 1785988157.38, "level": "info", "message": "epoch 2/3 step 3750 - loss 0.2306 acc 0.8845 val_loss 0.2484 val_acc 0.8549", "source": "stdout"}
