@@ -10,13 +10,31 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["machine-learning", "experiment-tracking", "mlops", "local-first", "dashboard"]
+authors = [
+    { name = "Pratham Rangunwala", email = "prathamdj777@gmail.com" },
+]
+maintainers = [
+    { name = "Pratham Rangunwala", email = "prathamdj777@gmail.com" },
+]
+keywords = [
+    "machine-learning",
+    "experiment-tracking",
+    "mlops",
+    "local-first",
+    "dashboard",
+    "reproducibility",
+    "provenance",
+    "metrics",
+    "training",
+    "research",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Environment :: Web Environment",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -66,6 +84,19 @@ all = [
 [project.scripts]
 mlexp = "mlexperimenttracker.cli:main"
 
+# Every URL here resolves today. A `Documentation` entry is deliberately absent: the
+# engineering notes live in a separate private repository, so a documentation link would be
+# dead for everyone reading the PyPI page.
+#
+# This table sits after every key of `[project]` on purpose. TOML gives a table everything
+# that follows it, so putting `[project.urls]` above `dependencies = []` silently makes the
+# dependency list a URL entry — which is exactly what happened once here.
+[project.urls]
+Homepage = "https://github.com/VamP08/MLExperimentTracker"
+Repository = "https://github.com/VamP08/MLExperimentTracker"
+Issues = "https://github.com/VamP08/MLExperimentTracker/issues"
+Changelog = "https://github.com/VamP08/MLExperimentTracker/blob/main/CHANGELOG.md"
+
 # --------------------------------------------------------------------------------------
 # Build
 # --------------------------------------------------------------------------------------
@@ -87,9 +118,15 @@ include = [
     "/src",
     "/tests",
     "/scripts",
+    "/examples",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
 ]
+# `examples/.gitignore` covers this directory for git, but hatchling reads only the root
+# ignore file, so without this line the sdist ships the synthetic dataset and the weight
+# files that `quickstart.py` regenerates on every run.
+exclude = ["/examples/quickstart_output"]
 
 # --------------------------------------------------------------------------------------
 # Tooling

@@ -1,5 +1,7 @@
 # MLExperimentTracker
 
+[![CI](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml)
+
 Local-first experiment tracking for machine learning. Runs are plain JSON and JSONL files
 in a directory you own — no tracking server, no database, no account, nothing leaving the
 machine — and a bundled dashboard reads that directory and shows you what happened.
@@ -58,6 +60,43 @@ run.log_feature_importance([{"name": "age", "importance": 0.31}])
 run.log_checkpoint("epoch_10", step=10, path="checkpoints/epoch_10.pt")
 ```
 
+## Try it
+
+`examples/quickstart.py` is a complete tracked training run in one file, and it needs
+**nothing but the standard library** — a hand-written logistic regression trained by
+gradient descent on synthetic data, which is the point rather than a shortcut: an example
+that required torch to demonstrate a dependency-free tracker would be arguing against
+itself.
+
+```bash
+python examples/quickstart.py     # a few seconds
+mlexp ui
+```
+
+It logs five metrics per epoch, a confusion matrix, an ROC curve, permutation feature
+importances and three checkpoints with real weight files, prints its progress into the
+captured log, and records a provenance manifest you can immediately check with
+`mlexp verify`. The data is drawn from a known model with two deliberately uninformative
+columns, so the importance chart has a right answer to be judged against. See
+`examples/README.md` for what to look at afterwards.
+
+## Log capture
+
+Every run records its own output. `stdout`, `stderr` and the `logging` root handler are
+captured into `logs.jsonl` for the life of the run — the terminal still receives every
+byte, existing logging handlers are untouched, and both are restored on every exit path
+including a crash.
+
+```python
+run.log_text("resolved device: cuda:0", level="info")   # the explicit half
+met.init(..., capture_output=False, capture_logging=False)  # turn the implicit halves off
+```
+
+It is on by default because a run whose output was not recorded cannot answer the first
+question anybody asks of a failure. The file is byte-capped, and reaching the cap is
+written into a final record rather than ending the log silently — a log that stops
+part-way through with no explanation reads as the end of the run.
+
 ## Status
 
 **Honest summary: the tracking SDK, the storage format, the API and the CLI are done and
@@ -66,16 +105,16 @@ tested. Parts of the dashboard are not wired up.**
 | Area | State |
 |---|---|
 | Python SDK — init, log, artifacts, checkpoints, crash handling | Working |
-| Storage format, versioned as `format_version` 1.1 | Working |
+| Storage format, versioned as `format_version` 1.2 | Working |
 | API server, CLI (`mlexp ui / demo / ls / show / path / provenance / verify / replay`) | Working |
 | Provenance capture — commit, uncommitted diff, packages, dataset hashes, environment | Working |
 | `mlexp verify` — drift against the recorded world; `mlexp replay` — rebuild the commit | Working |
-| Dashboard: experiments, runs, overview, params, metrics, system metrics, checkpoints, artifacts | Working |
-| Run comparison, ROC curve, confusion matrix, feature importance, gradient view | Components written, not routed |
-| Logs tab, both Settings pages | Placeholder UI, not connected |
-| Continuous integration | Not set up |
+| Log capture — `stdout`, `stderr` and `logging` into `logs.jsonl`, served by the API | Working |
+| Dashboard: experiments, runs, overview, params, metrics, logs, evaluation, system metrics, checkpoints, artifacts | Working |
+| Run comparison, ROC curve, confusion matrix, feature importance, gradient view | Working — reachable from the Evaluation, Metrics and Runs pages |
+| Continuous integration — ruff and pytest on Linux (3.10–3.12) and Windows, plus the dashboard lint and build | Workflow in the repo; no runs until it has a remote |
 
-430 tests pass, including a suite that runs the previous Node backend side by side and
+491 tests pass, including a suite that runs the previous Node backend side by side and
 diffs its JSON against this one route by route.
 
 ### Provenance, verify and replay
@@ -117,6 +156,7 @@ $EXPERIMENT_STORAGE_PATH/          # default: ~/.experiment_tracker
       checkpoints/*.json           # checkpoint sidecars
       provenance.json              # commit, packages, dataset hashes, environment
       uncommitted.patch            # the working-tree diff — may contain secrets
+      logs.jsonl                   # captured stdout, stderr and logging, append-only
 ```
 
 Only `metadata.json` is required; anything else missing degrades one part of the UI rather
@@ -147,6 +187,8 @@ separators and traversal sequences are rejected with a 404.
 | GET | `/api/run/{id}/metrics/timeseries?metric=` | One metric as a time series |
 | GET | `/api/run/{id}/metrics/export?format=csv\|json` | Export |
 | GET | `/api/run/{id}/system-metrics` · `/checkpoints` · `/artifacts` | Run detail |
+| GET | `/api/run/{id}/logs?level=&limit=&offset=` · `/logs/download` | Captured output |
+| GET | `/api/run/{id}/provenance` · `/patch` · `/verify` | The recorded world, and drift against it |
 | PATCH | `/api/run/{id}/tags` · `/description` | Update a run |
 | PATCH | `/api/experiment/{id}` | Update experiment description |
 
@@ -167,8 +209,8 @@ authorisation checks and four endpoints write to disk.
 
 ```bash
 pip install -e ".[all]"
-pytest tests                      # 311 tests
-ruff check src tests
+pytest tests                      # 491 tests
+ruff check src tests examples
 python scripts/build_ui.py        # build the React app into the package
 ```
 
@@ -184,10 +226,14 @@ product and is not needed to use this.
 
 ## Known limitations
 
-- Several finished dashboard components are not routed to any page.
-- No continuous integration.
-- `PATCH /api/experiment/{id}` writes to a file no read path loads, so the edit does not
-  survive a reload.
+- The dashboard has no per-run or per-experiment settings page. Archiving and deleting a
+  run were never implemented, so the two pages offering them were removed rather than left
+  as buttons that do nothing.
+- Nothing in the dashboard has been exercised by a rendering test. Every payload shape it
+  reads has been checked against a running server; the pages themselves are covered only by
+  the TypeScript build and the linter.
+- The CI workflow is in the repository but has never run, because the repository has no
+  remote yet. Treat the badge as a promise until it goes green.
 - Setting a run description also changes its display name — both derive from the same
   `notes` field.
 - Every request walks the storage tree with no caching or pagination, so response time
