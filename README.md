@@ -100,7 +100,9 @@ part-way through with no explanation reads as the end of the run.
 ## Status
 
 **Honest summary: the tracking SDK, the storage format, the API and the CLI are done and
-tested. Parts of the dashboard are not wired up.**
+tested. Every panel in the dashboard now reads real data from the API — but none of it has
+been checked in a browser, and two panels have nothing behind them yet (see Known
+limitations).**
 
 | Area | State |
 |---|---|
@@ -232,6 +234,10 @@ product and is not needed to use this.
 - Nothing in the dashboard has been exercised by a rendering test. Every payload shape it
   reads has been checked against a running server; the pages themselves are covered only by
   the TypeScript build and the linter.
+- Two panels are wired to the API but have no data behind them. The experiment activity
+  timeline is served as a hardcoded empty list, because no event stream is recorded. The
+  gradient view only draws for runs that log `gradient/...` series themselves; the bundled
+  demo does not, so it is empty there.
 - The CI workflow is in the repository but has never run, because the repository has no
   remote yet. Treat the badge as a promise until it goes green.
 - Setting a run description also changes its display name — both derive from the same
