@@ -11,6 +11,10 @@ import Evaluation from "./Evaluation/Evaluation";
 import SystemMetrics from "../../components/Runs/SystemMetrics/SystemMetrics";
 import Checkpoints from "../../components/Runs/Checkpoints/Checkpoints";
 import Artifacts from "../../components/Runs/Artifacts/Artifacts";
+import Breadcrumbs from "../../components/Breadcrumbs/Breadcrumbs";
+import type { Crumb } from "../../components/Breadcrumbs/Breadcrumbs";
+import RunSwitcher from "../../components/RunSwitcher/RunSwitcher";
+import { useRememberVisited } from "../../lib/navigationMemory";
 
 type TabType = "overview" | "run-params" | "logs" | "metrics" | "evaluation" | "system-metrics" | "checkpoints" | "artifacts";
 
@@ -32,6 +36,7 @@ interface RunsProps {
 interface RunDetails {
   _id: string;
   name: string;
+  experimentId: string;
   experimentName: string;
   createdAt: string;
 }
@@ -64,6 +69,9 @@ const Runs = ({ runId }: RunsProps) => {
         setRun({
           _id: data._id,
           name: data.name,
+          // Both are the project directory name today, but they are separate
+          // keys in the contract and the id is what the links are built from.
+          experimentId: data.experimentId,
           // GAPS M12: the API sends `experimentName`; this read was lowercase.
           experimentName: data.experimentName,
           createdAt: data.createdAt,
@@ -78,6 +86,14 @@ const Runs = ({ runId }: RunsProps) => {
 
     fetchRun();
   }, [runId]);
+
+  // Recorded from the loaded run rather than from the click that started the
+  // navigation, so a run that 404s leaves the sidebar pointing at the last one
+  // that really rendered. The experiment goes in too: the experiment owning the
+  // run on screen is the one the sidebar should return you to, and it arrived
+  // on the same successful response.
+  useRememberVisited("run", run?._id);
+  useRememberVisited("experiment", run?.experimentId);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -158,9 +174,28 @@ const Runs = ({ runId }: RunsProps) => {
     );
   }
 
+  // The run object already carries its experiment, so the trail costs no
+  // second request.
+  const experimentLabel = run.experimentName || run.experimentId;
+  const crumbs: Crumb[] = ([
+    { label: "Dashboard", to: "/" },
+    experimentLabel
+      ? {
+          label: experimentLabel,
+          // No id means no link rather than a link to the wrong experiment.
+          to: run.experimentId
+            ? `/experiment/${encodeURIComponent(run.experimentId)}`
+            : undefined,
+        }
+      : null,
+    { label: run.name || run._id },
+  ] as (Crumb | null)[]).filter((crumb): crumb is Crumb => crumb !== null);
+
   return (
     <div className="run-page">
       <div className="run-content">
+        <Breadcrumbs items={crumbs} />
+
         <div className="run-header">
           <div className="run-info">
             <h1 className="run-name">{run.name}</h1>
@@ -171,6 +206,8 @@ const Runs = ({ runId }: RunsProps) => {
               Created on {run.createdAt ? formatDate(run.createdAt) : "—"}
             </p>
           </div>
+
+          <RunSwitcher experimentId={run.experimentId || null} runId={run._id} />
         </div>
 
         <div className="tabs-container">

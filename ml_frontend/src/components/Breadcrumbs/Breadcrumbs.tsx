@@ -1,0 +1,61 @@
+import { Link } from "react-router-dom";
+import "./Breadcrumbs.css";
+
+/**
+ * One step of the trail. `to` is omitted on the final crumb, and on any crumb
+ * whose target is not known — an experiment name with no id behind it is still
+ * worth showing, but it must not be a link that goes to the wrong experiment.
+ */
+export interface Crumb {
+  label: string;
+  to?: string;
+}
+
+interface BreadcrumbsProps {
+  items: Crumb[];
+}
+
+/**
+ * The trail above a page header: `Dashboard / <experiment> / <run>`.
+ *
+ * The run page carries `experimentId` and `experimentName` on the run object it
+ * already fetched, so building the middle crumb costs no extra request.
+ */
+const Breadcrumbs = ({ items }: BreadcrumbsProps) => {
+  if (items.length === 0) return null;
+
+  return (
+    <nav aria-label="Breadcrumb" className="breadcrumbs">
+      <ol className="breadcrumbs-list">
+        {items.map((item, index) => {
+          const isLast = index === items.length - 1;
+
+          return (
+            <li className="breadcrumbs-item" key={`${index}-${item.label}`}>
+              {index > 0 && (
+                <span className="breadcrumbs-separator" aria-hidden="true">
+                  /
+                </span>
+              )}
+              {isLast || !item.to ? (
+                <span
+                  className={isLast ? "breadcrumbs-current" : "breadcrumbs-text"}
+                  aria-current={isLast ? "page" : undefined}
+                  title={item.label}
+                >
+                  {item.label}
+                </span>
+              ) : (
+                <Link className="breadcrumbs-link" to={item.to} title={item.label}>
+                  {item.label}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+};
+
+export default Breadcrumbs;

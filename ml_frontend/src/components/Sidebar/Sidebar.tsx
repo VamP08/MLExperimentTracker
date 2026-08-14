@@ -1,6 +1,7 @@
 import React, { useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { FiHome, FiMenu, FiSettings, FiBarChart2, FiLayers } from "react-icons/fi"
+import { useLastVisited } from "../../lib/navigationMemory"
 import styles from "./Sidebar.module.css"
 
 type Page = "dashboard" | "experiment" | "runs" | "settings"
@@ -31,7 +32,9 @@ const Sidebar = () => {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Map route paths to page keys for active state
+  // Map route paths to page keys for active state. Still correct now that the
+  // two entries below carry ids: `/experiment/<id>` and `/runs/<id>` share the
+  // prefixes these tests match, and no other route starts with either.
   const getActivePage = (): Page => {
     if (location.pathname.startsWith("/experiment")) return "experiment"
     if (location.pathname.startsWith("/runs")) return "runs"
@@ -41,6 +44,18 @@ const Sidebar = () => {
   }
 
   const activePage = getActivePage()
+
+  // `/experiment` and `/runs` resolve server-side to the most recently active
+  // experiment and the newest run, so they were never a way *back* to anything.
+  // Point them at the last experiment and run that actually loaded; fall back to
+  // the parameterless routes only when nothing has been visited yet.
+  const lastExperimentId = useLastVisited("experiment")
+  const lastRunId = useLastVisited("run")
+
+  const experimentPath = lastExperimentId
+    ? `/experiment/${encodeURIComponent(lastExperimentId)}`
+    : "/experiment"
+  const runsPath = lastRunId ? `/runs/${encodeURIComponent(lastRunId)}` : "/runs"
 
   return (
     <div className={`${styles.sidebar} ${isExpanded ? styles.expanded : styles.collapsed}`}>
@@ -89,14 +104,14 @@ const Sidebar = () => {
             text="Experiments"
             isExpanded={isExpanded}
             isActive={activePage === "experiment"}
-            onClick={() => navigate("/experiment")}
+            onClick={() => navigate(experimentPath)}
           />
           <MenuItem
             icon={<FiBarChart2 />}
             text="Runs"
             isExpanded={isExpanded}
             isActive={activePage === "runs"}
-            onClick={() => navigate("/runs")}
+            onClick={() => navigate(runsPath)}
           />
           <MenuItem
             icon={<FiSettings />}

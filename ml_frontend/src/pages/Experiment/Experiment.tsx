@@ -5,6 +5,8 @@ import "./Experiment.css";
 // Components
 import Overview from "./Overview/Overview";
 import Runs from "./Runs/Runs";
+import Breadcrumbs from "../../components/Breadcrumbs/Breadcrumbs";
+import { useRememberVisited } from "../../lib/navigationMemory";
 
 type TabType = "overview" | "runs";
 
@@ -60,6 +62,13 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
     fetchExperiment();
   }, [experimentId]);
 
+  // Recorded from the loaded experiment, not from the click that got here, so
+  // the sidebar cannot end up pointing at an id that does not resolve. This is
+  // also what makes `/experiment` (the parameterless route, which resolves to
+  // whichever experiment is newest) worth landing on: whatever it resolved to
+  // becomes the id the sidebar returns to next time.
+  useRememberVisited("experiment", experiment?._id);
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return "an unrecorded date";
@@ -105,6 +114,14 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
   return (
     <div className="experiment-page">
       <div className="experiment-content">
+        {/* Only once the name is known: a one-crumb trail would mark
+            "Dashboard" as the current page, which is not where we are. */}
+        {experiment && (
+          <Breadcrumbs
+            items={[{ label: "Dashboard", to: "/" }, { label: experiment.name }]}
+          />
+        )}
+
         <div className="experiment-header">
           <div className="experiment-info">
             <h1 className="experiment-name">
