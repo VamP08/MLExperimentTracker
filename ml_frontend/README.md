@@ -1,54 +1,31 @@
-# React + TypeScript + Vite
+# ml_frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The dashboard source: a Vite + React + TypeScript SPA, plain per-component CSS, no UI
+framework. It is not a standalone application — it reads the API served by the Python
+package in `../src/mlexperimenttracker`, and `scripts/build_ui.py` builds it into the
+wheel so `mlexp ui` serves the bundle from the installed package.
 
-Currently, two official plugins are available:
+For what the project is, how to install it and how to run it, see the [root
+README](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Working on the dashboard
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+npm install
+npm run dev      # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`vite.config.ts` proxies `/api` to `http://localhost:5000`, which is where `mlexp ui`
+binds by default, so start the API first in another shell:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+mlexp ui
+```
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+Every fetch in `src/` uses a relative `/api/...` URL so that the same code works behind
+the proxy in development and behind the packaged server in production. Keep it that way.
+
+```bash
+npm run build    # tsc -b && vite build -> dist/
+npx eslint .
 ```

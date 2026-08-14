@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import RunComparisonModal from "../../../components/Experiment/RunComparison/RunComparisonModal";
 import "./Runs.css";

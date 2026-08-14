@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import StatsOverview from "../../../components/Dashboard/StatsOverview/StatsOverview";
 import ActivityTimeline from "../../../components/Dashboard/ActivityTimeline/ActivityTimeline";

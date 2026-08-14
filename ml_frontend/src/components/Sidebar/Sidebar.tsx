@@ -1,5 +1,3 @@
-"use client"
-
 import React, { useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { FiHome, FiMenu, FiSettings, FiBarChart2, FiLayers } from "react-icons/fi"
