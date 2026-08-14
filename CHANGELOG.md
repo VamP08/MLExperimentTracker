@@ -12,7 +12,13 @@ two move at different speeds. Both are listed below.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **`ml_backend/` is now `parity_reference/`.** The directory holds the original Express
+  implementation, kept only so `tests/test_parity.py` can boot it and diff its responses
+  against the Python server. Sitting next to `src/` under its old name it read as a second,
+  competing backend; the new name says what it is. Nothing about it changed but the path,
+  and `parity_reference/README.md` now explains why it is there.
 
 ## [0.1.0] — 2026-08-13
 
@@ -78,8 +84,9 @@ First release. Storage format **1.2**.
   divergences enumerated rather than papered over.
 - **Continuous integration** — `.github/workflows/ci.yml` runs ruff and the full suite on
   Ubuntu (3.10, 3.11, 3.12) and Windows (3.12), and lints and builds the dashboard. Node
-  and `ml_backend/node_modules` are installed on every Python leg so the parity suite runs
-  live rather than skipping, and the job fails loudly if those prerequisites go missing.
+  and `parity_reference/node_modules` are installed on every Python leg so the parity
+  suite runs live rather than skipping, and the job fails loudly if those prerequisites go
+  missing.
 
 ### Removed
 
@@ -87,11 +94,11 @@ First release. Storage format **1.2**.
   controls — archive, delete, rename — have no implementation anywhere in the product. A
   button that does nothing is a worse claim than an absent page, so the pages and their
   tabs are gone. The global theme toggle at `/settings` is unaffected.
-- **The unused Node dependencies in `ml_backend/`** — `bcrypt`, `jsonwebtoken`, `mongodb`,
-  `mongoose`, `multer`, `ts-node`, `typescript` — along with the five Mongoose models that
-  were the only importers of `mongoose` and described a database design this project never
-  had. 116 packages removed; the retained Express server still serves every route the
-  parity suite diffs.
+- **The unused Node dependencies in `parity_reference/`** — `bcrypt`, `jsonwebtoken`,
+  `mongodb`, `mongoose`, `multer`, `ts-node`, `typescript` — along with the five Mongoose
+  models that were the only importers of `mongoose` and described a database design this
+  project never had. 116 packages removed; the retained Express server still serves every
+  route the parity suite diffs.
 - **The Tailwind toolchain from the dashboard.** It was installed three ways and never
   activated: no config file, no directive in any of the 39 stylesheets. All the CSS is
   hand-written and stays that way.

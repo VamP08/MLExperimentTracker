@@ -222,9 +222,10 @@ server at that port. `scripts/build_ui.py` compiles it into
 `src/mlexperimenttracker/server/static/`, which is gitignored as a build artifact and
 packaged into the wheel.
 
-`ml_backend/` is the previous Node implementation. It is retained because the parity test
-suite runs it and diffs its responses against the Python server; it is not part of the
-product and is not needed to use this.
+`parity_reference/` is the original Express implementation. It is not part of the product
+and is not needed to run it; it is retained because `tests/test_parity.py` boots it and
+diffs its responses against the Python server route by route, which is what proves the
+port preserved behaviour. `parity_reference/README.md` covers it in full.
 
 ## Known limitations
 

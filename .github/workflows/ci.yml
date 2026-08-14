@@ -58,17 +58,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       # Node is here for the parity suite, not for the frontend. tests/test_parity.py
-      # starts the retained Express backend in ml_backend/ and diffs every read route
-      # against the Python server; without Node and ml_backend/node_modules those tests
+      # starts the retained Express backend in parity_reference/ and diffs every read route
+      # against the Python server; without Node and parity_reference/node_modules those tests
       # skip and only the recorded-payload half of the file runs.
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: ml_backend/package-lock.json
+          cache-dependency-path: parity_reference/package-lock.json
 
       - name: Install the Express parity fixture
-        working-directory: ml_backend
+        working-directory: parity_reference
         run: npm ci
 
       # The parity live diff is the assertion that cannot go stale, so a run where it
@@ -77,8 +77,8 @@ jobs:
       - name: Assert the parity prerequisites are present
         run: |
           node --version
-          if [ ! -d ml_backend/node_modules ]; then
-            echo "::error::ml_backend/node_modules is missing — the parity live diff would skip."
+          if [ ! -d parity_reference/node_modules ]; then
+            echo "::error::parity_reference/node_modules is missing — the parity live diff would skip."
             exit 1
           fi
 

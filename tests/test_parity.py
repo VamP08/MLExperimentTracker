@@ -1,6 +1,6 @@
 """Parity with the Express backend this server replaces.
 
-The React frontend was written against `ml_backend`, so its payloads are the requirement:
+The React frontend was written against `parity_reference/`, so its payloads are the requirement:
 a key renamed, a number turned into a string, or an object that gained a level of nesting
 breaks a page rather than a test. This file is what stops that happening silently.
 
@@ -12,7 +12,7 @@ expected output that document states field by field. Those values were diffed ag
 running Express services and matched, so asserting on them is asserting on the reader's
 behaviour without needing the reader present.
 
-The second half runs only where Node and `ml_backend/node_modules` exist. It starts the
+The second half runs only where Node and `parity_reference/node_modules` exist. It starts the
 real Express server and this one against one storage tree and diffs every read route.
 That is the assertion that cannot go stale: the first half encodes what Express did on the
 day it was measured, and only the second half notices if that was ever wrong.
@@ -54,7 +54,7 @@ from mlexperimenttracker.server.app import create_app
 from mlexperimenttracker.storage import Storage
 
 REPO = Path(__file__).resolve().parents[1]
-ML_BACKEND = REPO / "ml_backend"
+PARITY_REFERENCE = REPO / "parity_reference"
 
 PROJECT = "churn-mlp"
 RUN = "churn-mlp_20260812T091403Z_7f3a"
@@ -638,12 +638,12 @@ def test_patching_an_unknown_experiment_creates_nothing(client: TestClient, root
 
 
 def _node_available() -> bool:
-    return bool(shutil.which("node")) and (ML_BACKEND / "node_modules").is_dir()
+    return bool(shutil.which("node")) and (PARITY_REFERENCE / "node_modules").is_dir()
 
 
 requires_express = pytest.mark.skipif(
     not _node_available(),
-    reason="needs Node and ml_backend/node_modules; the assertions above stand in for it",
+    reason="needs Node and parity_reference/node_modules; the assertions above stand in for it",
 )
 
 
@@ -660,7 +660,7 @@ def express(root: Path) -> Iterator[str]:
     env = {**os.environ, "EXPERIMENT_STORAGE_PATH": str(root), "PORT": str(port),
            "HOST": "127.0.0.1"}
     process = subprocess.Popen(
-        ["node", "index.js"], cwd=ML_BACKEND, env=env,
+        ["node", "index.js"], cwd=PARITY_REFERENCE, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     base = f"http://127.0.0.1:{port}"
