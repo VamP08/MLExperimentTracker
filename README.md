@@ -100,9 +100,9 @@ part-way through with no explanation reads as the end of the run.
 ## Status
 
 **Honest summary: the tracking SDK, the storage format, the API and the CLI are done and
-tested. Every panel in the dashboard now reads real data from the API — but none of it has
-been checked in a browser, and two panels have nothing behind them yet (see Known
-limitations).**
+tested, and the dashboard has been walked through by hand in a browser. Every panel reads
+real data from the API. Two panels are wired but have nothing behind them yet, and there is
+still no automated rendering test — see Known limitations.**
 
 | Area | State |
 |---|---|
@@ -232,9 +232,11 @@ port preserved behaviour. `parity_reference/README.md` covers it in full.
 - The dashboard has no per-run or per-experiment settings page. Archiving and deleting a
   run were never implemented, so the two pages offering them were removed rather than left
   as buttons that do nothing.
-- Nothing in the dashboard has been exercised by a rendering test. Every payload shape it
-  reads has been checked against a running server; the pages themselves are covered only by
-  the TypeScript build and the linter.
+- There is no automated rendering test. The dashboard has been walked through by hand and
+  every payload shape it reads is checked against a running server, but nothing guards a
+  regression in what actually paints — the TypeScript build and the linter only prove the
+  code is well-formed. A navigation defect shipped past both, plus 491 tests and an
+  import-graph walk, and was caught by opening the app.
 - Two panels are wired to the API but have no data behind them. The experiment activity
   timeline is served as a hardcoded empty list, because no event stream is recorded. The
   gradient view only draws for runs that log `gradient/...` series themselves; the bundled
