@@ -5,6 +5,7 @@ import ActivityTimeline from "../../components/Dashboard/ActivityTimeline/Activi
 import ExperimentSearch from "../../components/Dashboard/ExperimentSearch/ExperimentSearch";
 import EmptyState from "../../components/Dashboard/EmptyState/EmptyState";
 import "./Dashboard.css";
+import { apiFetch } from '../../lib/api';
 
 interface Run {
   _id: string;
@@ -70,7 +71,7 @@ const Dashboard = ({ onExperimentSelect }: DashboardProps) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/dashboard");
+      const res = await apiFetch("/api/dashboard");
 
       if (!res.ok) {
         throw new Error(`Server responded ${res.status}`);

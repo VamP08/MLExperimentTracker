@@ -3,6 +3,7 @@ import './Evaluation.css';
 import ConfusionMatrix from '../../../components/Runs/ConfusionMatrix/ConfusionMatrix';
 import ROCCurve from '../../../components/Runs/ROCCurve/ROCCurve';
 import FeatureImportance from '../../../components/Runs/FeatureImportance/FeatureImportance';
+import { apiFetch } from '../../../lib/api';
 
 interface Props {
   runId: string;
@@ -24,7 +25,7 @@ const Evaluation: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`/api/run/${runId}/artifacts`);
+      const response = await apiFetch(`/api/run/${runId}/artifacts`);
       if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`);
       }

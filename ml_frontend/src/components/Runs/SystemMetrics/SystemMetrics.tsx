@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import './SystemMetrics.css';
+import { apiFetch } from '../../../lib/api';
 
 interface SystemMetric {
   timestamp: number;
@@ -43,7 +44,7 @@ const SystemMetrics: React.FC<Props> = ({ runId }) => {
   const fetchSystemMetrics = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/run/${runId}/system-metrics`);
+      const response = await apiFetch(`/api/run/${runId}/system-metrics`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch system metrics');

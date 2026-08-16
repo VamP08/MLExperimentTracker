@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import "./Runs.css";
+import { apiFetch } from '../../lib/api';
 
 // Import components
 import Overview from "./Overview/Overview";
@@ -54,8 +55,8 @@ const Runs = ({ runId }: RunsProps) => {
         setError(null);
 
         const res = runId
-          ? await fetch(`/api/run/${runId}`)
-          : await fetch("/api/run");
+          ? await apiFetch(`/api/run/${runId}`)
+          : await apiFetch("/api/run");
 
         // A 404 on the unparameterised route means the storage tree holds no runs
         // yet — an empty archive, not a failure worth an error message.

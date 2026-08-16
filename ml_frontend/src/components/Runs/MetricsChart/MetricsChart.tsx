@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './MetricsChart.css';
+import { apiFetch } from '../../../lib/api';
 
 interface MetricDataPoint {
   step: number;
@@ -27,7 +28,7 @@ const MetricsChart: React.FC<Props> = ({ runId, metricName }) => {
     const fetchMetricsTimeSeries = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/run/${runId}/metrics`);
+        const response = await apiFetch(`/api/run/${runId}/metrics`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch metrics time series');

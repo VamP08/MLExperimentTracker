@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import "./Experiment.css";
+import { apiFetch } from '../../lib/api';
 
 // Components
 import Overview from "./Overview/Overview";
@@ -34,8 +35,8 @@ const Experiment = ({ experimentId, onRunSelect }: ExperimentProps) => {
         setError(null);
 
         const res = experimentId
-          ? await fetch(`/api/experiment/${experimentId}`)
-          : await fetch("/api/experiment");
+          ? await apiFetch(`/api/experiment/${experimentId}`)
+          : await apiFetch("/api/experiment");
 
         // 404 on the parameterless route means the storage root holds no
         // experiments at all, which is a first-run state rather than a fault.

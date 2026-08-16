@@ -3,6 +3,7 @@ import StatsOverview from "../../../components/Dashboard/StatsOverview/StatsOver
 import ActivityTimeline from "../../../components/Dashboard/ActivityTimeline/ActivityTimeline";
 import Description from "../../../components/Experiment/Overview/Description/Description";
 import "./Overview.css";
+import { apiFetch } from '../../../lib/api';
 
 interface StatsData {
   title: string;
@@ -48,7 +49,7 @@ const Overview = ({ experimentId }: OverviewProps) => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`/api/experiment/${experimentId}`);
+        const res = await apiFetch(`/api/experiment/${experimentId}`);
         if (!res.ok) {
           throw new Error(`Request failed with ${res.status}`);
         }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './RunParams.css';
+import { apiFetch } from '../../../lib/api';
 
 interface Param {
   name: string;
@@ -19,7 +20,7 @@ const RunParams: React.FC<RunParamsProps> = ({ runId }) => {
     const fetchParams = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/run/${runId}`);
+        const response = await apiFetch(`/api/run/${runId}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch run parameters');

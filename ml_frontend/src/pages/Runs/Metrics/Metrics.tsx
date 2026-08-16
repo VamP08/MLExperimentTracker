@@ -3,6 +3,7 @@ import './Metrics.css';
 import MetricsChart from '../../../components/Runs/MetricsChart/MetricsChart';
 import GradientVisualization from '../../../components/Runs/GradientVisualization/GradientVisualization';
 import { groupFlatMetrics, describeMetricStats, type MetricGroup } from '../../../lib/metrics';
+import { apiFetch } from '../../../lib/api';
 
 interface MetricsProps {
   runId?: string;
@@ -26,7 +27,7 @@ const Metrics = ({ runId }: MetricsProps) => {
 
       // Relative URL so the Vite dev proxy handles it; an absolute origin here
       // is cross-origin and gets blocked by CORS.
-      const response = await fetch(`/api/run/${runId}`);
+      const response = await apiFetch(`/api/run/${runId}`);
       if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`);
       }
@@ -50,7 +51,7 @@ const Metrics = ({ runId }: MetricsProps) => {
     if (!runId) return;
 
     try {
-      const response = await fetch(`/api/run/${runId}/metrics/export`);
+      const response = await apiFetch(`/api/run/${runId}/metrics/export`);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');

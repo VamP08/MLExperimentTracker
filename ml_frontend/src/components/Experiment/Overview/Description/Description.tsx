@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import './Description.css';
+import { apiFetch } from '../../../../lib/api';
 
 interface DescriptionProps {
   description: string;
@@ -28,7 +29,7 @@ const Description: React.FC<DescriptionProps> = ({ description, experimentId, on
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/experiment/${experimentId}`, {
+      const res = await apiFetch(`/api/experiment/${experimentId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"

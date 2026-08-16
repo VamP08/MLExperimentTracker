@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import './Artifacts.css';
+import { apiFetch } from '../../../lib/api';
 
 interface Artifact {
   _id: string;
@@ -24,7 +25,7 @@ const Artifacts: React.FC<Props> = ({ runId }) => {
   const fetchArtifacts = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/run/${runId}/artifacts`);
+      const response = await apiFetch(`/api/run/${runId}/artifacts`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch artifacts');

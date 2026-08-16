@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import './Checkpoints.css';
+import { apiFetch } from '../../../lib/api';
 
 interface Checkpoint {
   name: string;
@@ -21,7 +22,7 @@ const Checkpoints: React.FC<Props> = ({ runId }) => {
   const fetchCheckpoints = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/run/${runId}/checkpoints`);
+      const response = await apiFetch(`/api/run/${runId}/checkpoints`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch checkpoints');

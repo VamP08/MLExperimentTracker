@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RunComparisonModal from "../../../components/Experiment/RunComparison/RunComparisonModal";
 import "./Runs.css";
+import { apiFetch } from '../../../lib/api';
 
 interface RunsProps {
   experimentId: string;
@@ -92,7 +93,7 @@ const Runs = ({ experimentId, onRunSelect }: RunsProps) => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`/api/experiment/${experimentId}/runs`);
+        const res = await apiFetch(`/api/experiment/${experimentId}/runs`);
         if (!res.ok) {
           throw new Error(`Request failed with ${res.status}`);
         }

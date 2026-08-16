@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import "./RunSwitcher.css";
+import { apiFetch } from '../../lib/api';
 
 /**
  * One row of `GET /api/experiment/:id/runs`. The endpoint returns more than
@@ -52,7 +53,7 @@ const RunSwitcher = ({ experimentId, runId }: RunSwitcherProps) => {
 
     const fetchSiblings = async () => {
       try {
-        const res = await fetch(`/api/experiment/${encodeURIComponent(experimentId)}/runs`);
+        const res = await apiFetch(`/api/experiment/${encodeURIComponent(experimentId)}/runs`);
         if (!res.ok) throw new Error(`Request failed with ${res.status}`);
 
         const data = await res.json();

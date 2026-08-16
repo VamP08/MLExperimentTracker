@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { groupFlatMetricsByName, type MetricGroup } from '../../../lib/metrics';
 import './RunComparison.css';
+import { apiFetch } from '../../../lib/api';
 
 /**
  * The rows `GET /api/experiment/:id/runs` actually sends — seven keys, no more.
@@ -66,7 +67,7 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
       // Relative URL. An absolute http://localhost:5000 origin is cross-origin
       // from both the dev server and the bundle the API itself serves, and gets
       // blocked before the response is read.
-      const response = await fetch(`/api/experiment/${experimentId}/runs`);
+      const response = await apiFetch(`/api/experiment/${experimentId}/runs`);
 
       if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`);

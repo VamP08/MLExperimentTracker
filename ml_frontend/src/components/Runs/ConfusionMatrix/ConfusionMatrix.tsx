@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import './ConfusionMatrix.css';
+import { apiFetch } from '../../../lib/api';
 
 interface ConfusionMatrixData {
   labels: string[];
@@ -25,7 +26,7 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
       setLoading(true);
       setError(null);
       // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
-      const response = await fetch(`/api/run/${runId}/artifacts`);
+      const response = await apiFetch(`/api/run/${runId}/artifacts`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch artifacts: ${response.statusText}`);

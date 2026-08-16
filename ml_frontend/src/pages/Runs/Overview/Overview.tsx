@@ -7,6 +7,7 @@ import Description from '../../../components/Runs/Overview/Description/Descripti
 import Provenance from '../../../components/Runs/Provenance/Provenance';
 import './Overview.css';
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../../../lib/api';
 
 interface OverviewProps {
   runId: string;
@@ -64,7 +65,7 @@ const Overview = ( {runId}: OverviewProps) => {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`/api/run/${runId}`);
+        const res = await apiFetch(`/api/run/${runId}`);
         if (!res.ok) throw new Error(`Request failed with ${res.status}`);
 
         const data = await res.json();
@@ -124,7 +125,7 @@ const Overview = ( {runId}: OverviewProps) => {
     setAllTags(updatedTags);
 
     try {
-      await fetch(`/api/run/${runId}/tags`, {
+      await apiFetch(`/api/run/${runId}/tags`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: updatedTags }),
@@ -138,7 +139,7 @@ const Overview = ( {runId}: OverviewProps) => {
   setDescription(newDesc);
 
   try {
-    await fetch(`/api/run/${runId}/description`, {
+    await apiFetch(`/api/run/${runId}/description`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: newDesc }),
