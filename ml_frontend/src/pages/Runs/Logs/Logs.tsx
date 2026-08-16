@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './Logs.css';
+import { apiFetch, IS_DEMO } from '../../../lib/api';
 
 /**
  * A record of `logs.jsonl` as the API hands it back (DATA-CONTRACT §3.11).
@@ -62,7 +63,7 @@ const Logs = ({ runId }: Props) => {
       });
       if (wanted !== 'all') params.set('level', wanted);
 
-      const response = await fetch(`/api/run/${runId}/logs?${params.toString()}`);
+      const response = await apiFetch(`/api/run/${runId}/logs?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`Request failed with ${response.status}`);
       }
@@ -170,13 +171,27 @@ const Logs = ({ runId }: Props) => {
               </option>
             ))}
           </select>
-          <a
-            className="logs-download-button"
-            href={`/api/run/${runId}/logs/download`}
-            download={`${runId}_logs.txt`}
-          >
-            Download full log
-          </a>
+          {/* The download is a plain link to the server, not a fetch, so the static demo
+              has nothing to serve it from: the log file is streamed off disk as an
+              attachment and there is no disk. Rather than leave a link that 404s, the
+              demo shows the control disabled and says why. The log itself is right here
+              on the page — it is the file this button would have handed over. */}
+          {IS_DEMO ? (
+            <span
+              className="logs-download-button logs-download-button-disabled"
+              title="Not available in the static demo: the file is streamed from the server, and there is no server. The log shown here is the same content."
+            >
+              Download full log
+            </span>
+          ) : (
+            <a
+              className="logs-download-button"
+              href={`/api/run/${runId}/logs/download`}
+              download={`${runId}_logs.txt`}
+            >
+              Download full log
+            </a>
+          )}
         </div>
       </div>
 

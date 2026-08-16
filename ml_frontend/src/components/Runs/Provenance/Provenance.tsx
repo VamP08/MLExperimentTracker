@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import './Provenance.css';
+import { apiFetch, IS_DEMO } from '../../../lib/api';
 
 interface GitState {
   available?: boolean;
@@ -67,7 +68,7 @@ const Provenance: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`/api/run/${runId}/provenance`);
+      const response = await apiFetch(`/api/run/${runId}/provenance`);
 
       // Most runs have no manifest: everything written before format 1.1, and every run
       // whose capture failed. That is a normal state, not a failure, and it renders as
@@ -161,9 +162,21 @@ const Provenance: React.FC<Props> = ({ runId }) => {
           <div className="provenance-row">
             <span className="provenance-label">Patch</span>
             <span className="provenance-value">
-              <a className="provenance-download" href={`/api/run/${runId}/patch`}>
-                Download diff
-              </a>
+              {/* Served as an attachment straight from the run directory, so the static
+                  demo cannot produce it — see the same case on the Logs tab. The row still
+                  reports the diff's real size, which is the part that is evidence. */}
+              {IS_DEMO ? (
+                <span
+                  className="provenance-download provenance-download-disabled"
+                  title="Not available in the static demo: the patch is served from the run directory, and there is no server."
+                >
+                  Download diff
+                </span>
+              ) : (
+                <a className="provenance-download" href={`/api/run/${runId}/patch`}>
+                  Download diff
+                </a>
+              )}
               <span className="provenance-note">
                 {formatBytes(git.diff_bytes ?? 0)}
                 {git.diff_truncated ? ' — truncated, will not apply cleanly' : ''}
