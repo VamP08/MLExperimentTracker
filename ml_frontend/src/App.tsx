@@ -2,11 +2,15 @@ import { useEffect } from "react"
 import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from "react-router-dom"
 
 import Sidebar from "./components/Sidebar/Sidebar"
+import DemoBanner from "./components/DemoBanner/DemoBanner"
 import NotFound from "./components/Dashboard/NotFound/NotFound"
 import { DashboardWithNav } from "./pages/Dashboard/DashboardWithNav"
 import Experiment from "./pages/Experiment/Experiment"
 import Runs from "./pages/Runs/Runs"
 import Settings from "./pages/Settings/Settings"
+// `false` in the normal build, and Vite substitutes the literal it is defined from, so the
+// banner below folds away with it rather than shipping in the bundle the wheel packages.
+import { IS_DEMO } from "./lib/api"
 import "./App.css"
 
 // Wrapper component to handle experiment route params and callbacks
@@ -36,8 +40,14 @@ function App() {
   }, [])
 
   return (
-    <Router>
+    /*
+     * BASE_URL is "/" for the normal build, which the Python server serves from the root,
+     * and "/MLExperimentTracker/" for the GitHub Pages demo. Without the basename every
+     * route under the Pages subpath falls through to the catch-all.
+     */
+    <Router basename={import.meta.env.BASE_URL}>
       <div className="app">
+        {IS_DEMO && <DemoBanner />}
         <div className="app-container">
           <Sidebar />
           <main className="app-main">
