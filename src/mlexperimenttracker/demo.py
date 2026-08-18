@@ -887,8 +887,12 @@ def _metrics_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
     summary: dict[str, dict[str, float]] = {}
     for name, values in series.items():
         count = len(values)
-        mean = sum(values) / count
-        variance = sum((value - mean) ** 2 for value in values) / count
+        # math.fsum, not sum: CPython 3.12 switched float sum() to Neumaier
+        # compensated summation, so the same series produced a mean differing in the
+        # last digit on 3.10/3.11 and the committed fixture no longer matched.
+        # fsum is exactly rounded on every version.
+        mean = math.fsum(values) / count
+        variance = math.fsum((value - mean) ** 2 for value in values) / count
         summary[name] = {
             "latest": values[-1],
             "mean": round(mean, 6),
@@ -1114,7 +1118,7 @@ def _confusion_matrix(
             else (1.0 / (1.0 + abs(true_class - other))) * (0.6 + rng.random())
             for other in range(class_count)
         ]
-        total_weight = sum(weights)
+        total_weight = math.fsum(weights)
         exact = [remainder * weight / total_weight for weight in weights]
         counts = [int(value) for value in exact]
         # Largest-remainder apportionment, so the row sums to per_class exactly and the
@@ -1176,7 +1180,7 @@ def _feature_importance(rng: Random, features: tuple[str, ...]) -> list[dict[str
     """Importances that decay geometrically and sum to one, in descending order."""
     weights = [(0.62**index) * (0.85 + 0.3 * rng.random()) for index in range(len(features))]
     weights.sort(reverse=True)
-    total = sum(weights)
+    total = math.fsum(weights)
     return [
         {
             "name": name,
