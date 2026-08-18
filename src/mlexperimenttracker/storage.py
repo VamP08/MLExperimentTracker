@@ -537,8 +537,17 @@ class Storage:
                     "size": size,
                 }
             )
+        # Tie-break on step: two checkpoints written in the same clock tick carry the
+        # same created_at, and a stable sort then returns them oldest-first, which is the
+        # opposite of what this method promises. A fast runner hits that constantly; a
+        # slow one almost never, which is how it reached CI green on one leg and red on
+        # two. Higher step is newer.
         checkpoints.sort(
-            key=lambda c: _parse_iso(c.get("createdAt")) or float("-inf"), reverse=True
+            key=lambda c: (
+                _parse_iso(c.get("createdAt")) or float("-inf"),
+                c.get("step") if isinstance(c.get("step"), (int, float)) else float("-inf"),
+            ),
+            reverse=True,
         )
         return checkpoints
 
