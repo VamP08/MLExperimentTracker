@@ -4,11 +4,12 @@ import react from '@vitejs/plugin-react'
 /**
  * Where the demo is served from.
  *
- * GitHub Pages publishes a project site under `https://<user>.github.io/<repo>/`, so every
- * asset URL and every route in the demo build carries that prefix. The normal build is
- * served from the root of the Python server and keeps `/` — see `base` below.
+ * The demo is deployed as a Render static site, which serves from the root of its own
+ * subdomain, so it needs no path prefix. Kept as a named constant because a host that
+ * publishes under a subpath (GitHub Pages does: `https://<user>.github.io/<repo>/`) needs
+ * this and the router's `basename` changed together, and they are easy to change apart.
  */
-const DEMO_BASE = '/MLExperimentTracker/'
+const DEMO_BASE = '/'
 
 /** The `<title>` in index.html, and what the demo build replaces it with. */
 const TITLE = '<title>MLExperimentTracker</title>'

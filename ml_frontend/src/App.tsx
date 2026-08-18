@@ -41,9 +41,10 @@ function App() {
 
   return (
     /*
-     * BASE_URL is "/" for the normal build, which the Python server serves from the root,
-     * and "/MLExperimentTracker/" for the GitHub Pages demo. Without the basename every
-     * route under the Pages subpath falls through to the catch-all.
+     * BASE_URL follows `base` in vite.config.ts: "/" for both the normal build, which
+     * the Python server serves from its root, and the demo, which Render serves from its
+     * own subdomain root. It is wired anyway so that a host publishing under a subpath
+     * needs one constant changed and not a hunt through the router.
      */
     <Router basename={import.meta.env.BASE_URL}>
       <div className="app">

@@ -6,11 +6,11 @@ Local-first experiment tracking for machine learning. Runs are plain JSON and JS
 in a directory you own — no tracking server, no database, no account, nothing leaving the
 machine — and a bundled dashboard reads that directory and shows you what happened.
 
-**Live demo:** <https://vamp08.github.io/MLExperimentTracker/> — the real dashboard running
-entirely in your browser, with a snapshot of real runs bundled into the page instead of an
-API behind it. Nothing is installed and nothing is saved. *Not live yet: the demo builds and
-runs, but it publishes on the first push with GitHub Pages enabled, so this link 404s until
-then.*
+**Live demo:** <https://mlexperimenttracker-demo.onrender.com> — the real dashboard running
+entirely in your browser, with a snapshot of real runs compiled into the page instead of an
+API behind it. Nothing is installed, nothing is uploaded, and nothing is saved: edits apply
+to memory and vanish on reload. *Not live until the Render blueprint in `render.yaml` has
+been deployed once.*
 
 One install, one command:
 

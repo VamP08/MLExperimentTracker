@@ -1,0 +1,37 @@
+# Render blueprint for the public demo.
+#
+# This deploys the STATIC demo build, not the product. The product is a local-first tool:
+# it reads a run directory on your own machine, and there is nothing to host. What is
+# published here is the same dashboard compiled against a recorded snapshot of the real
+# API, so a visitor can click through it without installing anything and without any of
+# their data — or anyone's — leaving their browser.
+#
+# A static site rather than a web service on purpose: Render's free web services sleep
+# after idle and cold-start in tens of seconds, which is the wrong first impression for a
+# link on a CV. A static site has no cold start.
+services:
+  - type: web
+    name: mlexperimenttracker-demo
+    runtime: static
+    # The snapshot is generated during the build, so it carries the build environment's
+    # paths rather than any developer's home directory.
+    buildCommand: |
+      python -m pip install --upgrade pip
+      pip install -e ".[server,system]" httpx
+      python scripts/build_demo_snapshot.py
+      cd ml_frontend && npm ci && npm run build:demo
+    staticPublishPath: ml_frontend/dist
+    pullRequestPreviewsEnabled: false
+    routes:
+      # The dashboard is a single-page app: /runs/<id> is a client-side route with no file
+      # behind it. Without this every deep link and every refresh returns Render's 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+# NOTE on what this publishes. The provenance card in the demo is a genuine capture, so it
+# carries the paths of the machine that built it: interpreter location, working directory,
+# dataset path. Built here by Render, those are container paths and say nothing about
+# anyone. Built on a laptop they are a home directory with an account name in it. The
+# snapshot committed to the repository is therefore an empty placeholder, and this build
+# regenerates it — do not upload a locally built dist by hand.
