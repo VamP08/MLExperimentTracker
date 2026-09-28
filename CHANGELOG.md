@@ -25,6 +25,9 @@ two move at different speeds. Both are listed below.
   font service.
   The landing page charts the archive (runs per day by outcome, success rate per experiment,
   run durations) and lists the latest runs, each with its training curve.
+  Each experiment's overview overlays the training curves of its newest runs on one chart,
+  ranks the runs by their final value on the chosen metric, and plots a parameter against
+  that result, one dot per run. The app has a new mark and favicon.
 
 ### Removed
 

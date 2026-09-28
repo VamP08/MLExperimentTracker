@@ -1,7 +1,12 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Overview.css";
 import { formatWhen, runBadge } from "../../../components/Experiment/experiment";
 import type { ExperimentData } from "../../../components/Experiment/experiment";
+import { headlineMetric } from "../../../lib/metrics";
+import { CurvesPanel, Leaderboard, ParamScatter } from "./ExperimentCharts";
+import { CURVE_LIMIT, useChartRuns } from "./chartRuns";
+import type { Ranked } from "./ExperimentCharts";
 
 interface OverviewProps {
   experiment: ExperimentData;
@@ -36,6 +41,20 @@ const Overview = ({ experiment, onOpenRuns }: OverviewProps) => {
     .sort((a, b) => startedMs(b.startedAt) - startedMs(a.startedAt))
     .slice(0, RECENT_LIMIT);
 
+  // One metric drives every chart below, so the curves, the ranking and the scatter agree.
+  const charted = useChartRuns(experiment._id, runs);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const metrics = [...new Set((charted ?? []).flatMap((r) => r.series.filter((s) => s.pts.length > 0).map((s) => s.name)))];
+  const metric = chosen && metrics.includes(chosen) ? chosen : headlineMetric(metrics)?.key;
+  const better = metric && /loss|err/i.test(metric) ? "min" : "max";
+  const ranked: Ranked[] = (charted ?? [])
+    .map((run) => {
+      const pts = run.series.find((s) => s.name === metric)?.pts ?? [];
+      return { run, pts, final: pts.length ? pts[pts.length - 1].y : NaN };
+    })
+    .filter((r) => Number.isFinite(r.final))
+    .sort((a, b) => (better === "max" ? b.final - a.final : a.final - b.final));
+
   const timeline = experiment.activityTimeline.map((activity) => ({
     date: formatWhen(activity.date) ?? "—",
     event: activity.event ?? "",
@@ -43,7 +62,26 @@ const Overview = ({ experiment, onOpenRuns }: OverviewProps) => {
 
   return (
     <div className="stack">
-      <div className="exp-overview">
+      {charted === null && runs.length > 0 ? (
+        <section className="panel">
+          <div className="state" role="status">
+            Loading run curves…
+          </div>
+        </section>
+      ) : (
+        metric && (
+          <>
+            {runs.length > CURVE_LIMIT && <p className="exp-note">Charts show the newest {CURVE_LIMIT} of {runs.length} runs.</p>}
+            <div className="exp-cols">
+              <CurvesPanel metric={metric} metrics={metrics} onMetric={setChosen} ranked={ranked} better={better} />
+              <Leaderboard metric={metric} ranked={ranked} better={better} />
+            </div>
+          </>
+        )
+      )}
+
+      <div className="exp-cols">
+        {metric && ranked.length > 1 && <ParamScatter metric={metric} ranked={ranked} better={better} />}
         <section className="panel" aria-labelledby="exp-states-title">
           <div className="panel-head">
             <h2 id="exp-states-title">Runs by state</h2>
@@ -74,53 +112,53 @@ const Overview = ({ experiment, onOpenRuns }: OverviewProps) => {
             </ul>
           </div>
         </section>
-
-        <section className="panel" aria-labelledby="exp-recent-title">
-          <div className="panel-head">
-            <h2 id="exp-recent-title">Recent runs</h2>
-            <span className="spacer" />
-            {runs.length > 0 && (
-              <button type="button" className="exp-link-btn" onClick={onOpenRuns}>
-                All runs
-              </button>
-            )}
-          </div>
-          {recent.length === 0 ? (
-            <div className="state">
-              <h3>No runs yet</h3>
-              <p>A run appears here once its directory contains a <code>metadata.json</code>.</p>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Run</th>
-                    <th>Started</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((run) => {
-                    const badge = runBadge(run.status);
-                    return (
-                      <tr key={run._id}>
-                        <td>
-                          <span className={`badge ${badge.tone}`}>{badge.label}</span>
-                        </td>
-                        <td className="exp-run-name">
-                          <Link to={`/runs/${encodeURIComponent(run._id)}`}>{run.name}</Link>
-                        </td>
-                        <td className="num muted">{formatWhen(run.startedAt) ?? "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
       </div>
+
+      <section className="panel" aria-labelledby="exp-recent-title">
+        <div className="panel-head">
+          <h2 id="exp-recent-title">Recent runs</h2>
+          <span className="spacer" />
+          {runs.length > 0 && (
+            <button type="button" className="exp-link-btn" onClick={onOpenRuns}>
+              All runs
+            </button>
+          )}
+        </div>
+        {recent.length === 0 ? (
+          <div className="state">
+            <h3>No runs yet</h3>
+            <p>A run appears here once its directory contains a <code>metadata.json</code>.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Run</th>
+                  <th>Started</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((run) => {
+                  const badge = runBadge(run.status);
+                  return (
+                    <tr key={run._id}>
+                      <td>
+                        <span className={`badge ${badge.tone}`}>{badge.label}</span>
+                      </td>
+                      <td className="exp-run-name">
+                        <Link to={`/runs/${encodeURIComponent(run._id)}`}>{run.name}</Link>
+                      </td>
+                      <td className="num muted">{formatWhen(run.startedAt) ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* Empty on every server today (GAPS M14): no card at all rather than an empty one. */}
       {timeline.length > 0 && (

@@ -1,0 +1,150 @@
+/* Curves beside the leaderboard, the scatter beside the state counts; stacked when narrow. */
+.exp-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .exp-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ec-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ec-metric {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  font: 500 12.5px var(--mono);
+  color: var(--text-2);
+}
+.ec-metric:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ec-metric[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.ec-lead {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.ec-lead a {
+  font-weight: 600;
+}
+.ec-lead b {
+  font-family: var(--mono);
+  font-weight: 500;
+}
+.ec-swatch {
+  display: inline-block;
+  vertical-align: 0;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 2px;
+}
+.ec-empty {
+  margin: 4px 0;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.ec-board {
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+}
+.ec-board li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+}
+.ec-rank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--hover);
+}
+.ec-board li.is-best .ec-rank {
+  background: var(--accent);
+  color: #fff;
+}
+.ec-board-main {
+  flex: 1;
+  min-width: 0;
+}
+.ec-board-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.ec-board-label a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ec-board li.is-best .ec-board-label a {
+  font-weight: 600;
+}
+.ec-board-label b {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 13px;
+}
+.ec-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hover);
+  overflow: hidden;
+}
+.ec-track div {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.ec-scatter {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.ec-grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+.ec-tick {
+  font: 400 10px var(--mono);
+  fill: var(--text-3);
+}
+.ec-axis {
+  font: 500 11px var(--mono);
+  fill: var(--text-2);
+}
+.ec-dot {
+  fill-opacity: 0.85;
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+.ec-dot.is-best {
+  fill-opacity: 1;
+  stroke: var(--text);
+  stroke-width: 2;
+}

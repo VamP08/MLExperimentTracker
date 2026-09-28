@@ -76,11 +76,7 @@ const Sidebar = () => {
       />
       <aside className={`${styles.rail} ${open ? styles.open : ""}`} aria-label="Primary">
         <div className={styles.brand}>
-          <span className={styles.mark} aria-hidden="true">
-            <svg viewBox="0 0 16 16">
-              <path d="M2 12.5 6 7.5l3 3 5-6.5" />
-            </svg>
-          </span>
+          <img className={styles.mark} src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
           <Link to="/" className={styles.brandName}>
             MLExperimentTracker
           </Link>

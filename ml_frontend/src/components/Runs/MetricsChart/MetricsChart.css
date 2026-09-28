@@ -74,6 +74,12 @@
   stroke: var(--bg);
   stroke-width: 1.5;
 }
+.lc-dim .lc-line {
+  opacity: 0.38;
+}
+.lc-hi .lc-line {
+  stroke-width: 2.8;
+}
 .lc-cross {
   stroke: var(--text-3);
   stroke-width: 1;

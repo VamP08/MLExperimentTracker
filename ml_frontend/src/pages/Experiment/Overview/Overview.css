@@ -1,13 +1,7 @@
-.exp-overview {
-  display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
-@media (max-width: 900px) {
-  .exp-overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.exp-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
 }
 
 /* One thin stacked bar: each segment grows by its run count. */

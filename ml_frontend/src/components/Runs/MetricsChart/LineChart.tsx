@@ -21,6 +21,13 @@ interface LineChartProps {
   label: string;
   height?: number;
   format?: (value: number) => string;
+  /** Series drawn on top at full strength while the rest recede. */
+  highlight?: string;
+  /**
+   * Read each series at its last point at or before the hovered step, rather than only at an
+   * exact match. For series logged on different step grids, such as runs with different batch sizes.
+   */
+  carry?: boolean;
 }
 
 const PAD = { l: 60, r: 16, t: 12, b: 28 };
@@ -30,7 +37,7 @@ const PAD = { l: 60, r: 16, t: 12, b: 28 };
  * legible from a phone to a wide monitor. Hovering pins a crosshair to the nearest logged
  * step and reads every series at it; otherwise the readout shows each series' last point.
  */
-const LineChart = ({ series, label, height = 320, format = fmt }: LineChartProps) => {
+const LineChart = ({ series, label, height = 320, format = fmt, highlight, carry = false }: LineChartProps) => {
   const wrap = useRef<HTMLDivElement>(null);
   const clip = useId();
   const [width, setWidth] = useState(720);
@@ -74,7 +81,12 @@ const LineChart = ({ series, label, height = 320, format = fmt }: LineChartProps
 
   const readX = hoverX ?? xs[xs.length - 1];
   const readout = drawn.map((s) => {
-    const at = hoverX === null ? s.pts[s.pts.length - 1] : s.pts.find((p) => p.x === hoverX);
+    const at =
+      hoverX === null
+        ? s.pts[s.pts.length - 1]
+        : carry
+          ? s.pts.filter((p) => p.x <= hoverX).pop()
+          : s.pts.find((p) => p.x === hoverX);
     return { s, at };
   });
 
@@ -119,8 +131,12 @@ const LineChart = ({ series, label, height = 320, format = fmt }: LineChartProps
             {t}
           </text>
         ))}
-        {drawn.map((s) => (
-          <g key={s.name} className={`lc-s${(s.index % 5) + 1}`} clipPath={`url(#${clip})`}>
+        {[...drawn].sort((a, b) => Number(a.name === highlight) - Number(b.name === highlight)).map((s) => (
+          <g
+            key={s.name}
+            className={`lc-s${(s.index % 5) + 1}${highlight === undefined ? "" : s.name === highlight ? " lc-hi" : " lc-dim"}`}
+            clipPath={`url(#${clip})`}
+          >
             {s.pts.length > 1 ? (
               <path
                 className="lc-line"
