@@ -1,6 +1,6 @@
 """Tests for the static demo's snapshot builder.
 
-``scripts/build_demo_snapshot.py`` records the real API's real answers so the GitHub Pages
+``scripts/build_demo_snapshot.py`` records the real API's real answers so the static demo
 build can replay them without a server. Everything that makes that trustworthy is a
 property of the file it writes, so this is where those properties are pinned:
 

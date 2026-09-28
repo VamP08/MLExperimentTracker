@@ -15,11 +15,17 @@ services:
     runtime: static
     # The snapshot is generated during the build, so it carries the build environment's
     # paths rather than any developer's home directory.
+    #
+    # `set -e` stops the build at the first failing step, and the last line refuses to publish
+    # if the committed empty placeholder reached the bundle: a capture that silently failed
+    # would otherwise deploy a demo with no runs in it, captioned as real data.
     buildCommand: |
+      set -e
       python -m pip install --upgrade pip
       pip install -e ".[server,system]" httpx
       python scripts/build_demo_snapshot.py
       cd ml_frontend && npm ci && npm run build:demo
+      if grep -rq "not captured yet" dist; then echo "demo snapshot is the empty placeholder; the capture did not run" >&2; exit 1; fi
     staticPublishPath: ml_frontend/dist
     pullRequestPreviewsEnabled: false
     routes:

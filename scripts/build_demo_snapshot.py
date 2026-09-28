@@ -50,8 +50,8 @@ Needs ``git`` on PATH. It overwrites ``ml_frontend/src/demo/snapshot.json``, whi
 frontend imports and which is tracked as an *empty placeholder* — the path cannot be
 gitignored, because Rollup resolves that import while building the normal bundle too and an
 absent file breaks ``npm run build`` on a fresh clone. The ~540 KiB capture this writes over
-it is a build artifact: regenerate it, do not commit it. CI regenerates it on the way to the
-deploy, and the Pages workflow fails if the placeholder reaches the bundle.
+it is a build artifact: regenerate it, do not commit it. The Render build regenerates it on
+the way to the deploy, and fails if the placeholder reaches the bundle.
 """
 
 from __future__ import annotations
