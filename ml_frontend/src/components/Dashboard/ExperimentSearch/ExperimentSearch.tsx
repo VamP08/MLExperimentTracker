@@ -159,10 +159,13 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
       </div>
 
       {allTags.length > 0 && (
-        <div className="exp-search-tags">
-          <span className="muted" id="experiment-search-tags-label">
-            Tags
-          </span>
+        // Collapsed by default so a long tag vocabulary does not push the experiments out of
+        // view; open whenever a tag is selected, so an active filter is never hidden.
+        <details className="exp-search-tags" open={selectedTags.length > 0 || undefined}>
+          <summary className="muted" id="experiment-search-tags-label">
+            Filter by tag
+            <span className="count">{selectedTags.length ? `${selectedTags.length} of ${allTags.length}` : allTags.length}</span>
+          </summary>
           <div className="exp-search-tag-list" role="group" aria-labelledby="experiment-search-tags-label">
             {allTags.map((tag) => {
               const active = selectedTags.includes(tag);
@@ -180,7 +183,7 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
               );
             })}
           </div>
-        </div>
+        </details>
       )}
 
       {isFiltered && (

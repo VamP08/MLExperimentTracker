@@ -1,9 +1,10 @@
-import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from "react-router-dom"
+import { useEffect } from "react"
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useParams } from "react-router-dom"
 
 import Sidebar from "./components/Sidebar/Sidebar"
 import DemoBanner from "./components/DemoBanner/DemoBanner"
 import NotFound from "./components/Dashboard/NotFound/NotFound"
-import { DashboardWithNav } from "./pages/Dashboard/DashboardWithNav"
+import Dashboard from "./pages/Dashboard/Dashboard"
 import Experiment from "./pages/Experiment/Experiment"
 import Runs from "./pages/Runs/Runs"
 import Settings from "./pages/Settings/Settings"
@@ -11,6 +12,16 @@ import Settings from "./pages/Settings/Settings"
 // banner below folds away with it rather than shipping in the bundle the wheel packages.
 import { IS_DEMO } from "./lib/api"
 import "./App.css"
+
+// The main pane, not the window, is what scrolls, so the browser never resets it between
+// pages: without this a link clicked halfway down one page opens the next one halfway down.
+const ScrollReset = () => {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    document.getElementById("main")?.scrollTo(0, 0)
+  }, [pathname])
+  return null
+}
 
 const ExperimentWrapper = () => {
   const { experimentId } = useParams<{ experimentId: string }>()
@@ -32,6 +43,7 @@ function App() {
      * needs one constant changed and not a hunt through the router.
      */
     <Router basename={import.meta.env.BASE_URL}>
+      <ScrollReset />
       <div className="app">
         {IS_DEMO && <DemoBanner />}
         {/* The rail stays fixed and only the main pane scrolls, so navigation never leaves
@@ -40,7 +52,7 @@ function App() {
           <Sidebar />
           <main className="main" id="main">
             <Routes>
-              <Route path="/" element={<DashboardWithNav />} />
+              <Route path="/" element={<Dashboard />} />
               <Route path="/experiment/:experimentId" element={<ExperimentWrapper />} />
               <Route path="/experiment" element={<ExperimentWrapper />} />
               <Route path="/runs/:runId" element={<RunsWrapper />} />

@@ -23,6 +23,8 @@ two move at different speeds. Both are listed below.
   logged on every tab. The run title edits the run's description, and tags can be added and
   removed in place. Fonts are bundled into the build, so the dashboard makes no request to a
   font service.
+  The landing page charts the archive (runs per day by outcome, success rate per experiment,
+  run durations) and lists the latest runs, each with its training curve.
 
 ### Removed
 

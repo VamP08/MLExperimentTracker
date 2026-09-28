@@ -48,10 +48,6 @@
   font-size: 14px;
 }
 .exp-search-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
   font-size: 14px;
 }
 .exp-search-tag-list {
@@ -88,4 +84,33 @@
 .exp-search-summary {
   margin: 0;
   font-size: 13.5px;
+}
+
+/* Tag filter disclosure. */
+.exp-search-tags summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  list-style: none;
+  user-select: none;
+}
+.exp-search-tags summary::-webkit-details-marker {
+  display: none;
+}
+.exp-search-tags summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 160ms var(--ease);
+}
+.exp-search-tags[open] summary::before {
+  transform: rotate(45deg);
+}
+.exp-search-tags[open] .exp-search-tag-list {
+  margin-top: 10px;
 }

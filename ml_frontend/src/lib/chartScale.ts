@@ -40,3 +40,7 @@ export function tickLabel(value: number, step: number): string {
   const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9) + (String(step).includes("25") ? 1 : 0));
   return value.toFixed(decimals);
 }
+
+/** The five spectral series colours, the only multicolour in the product. */
+export const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"];
+export const seriesColor = (index: number): string => SERIES[index % SERIES.length];

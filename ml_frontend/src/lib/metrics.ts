@@ -110,7 +110,7 @@ export function describeMetricStats(group: MetricGroup): string {
 }
 
 /** The server's key transform, ported: `val_loss` → `valLoss`, `learning-rate` → `learningRate`. */
-function camelCase(key: string): string {
+export function camelCase(key: string): string {
   const parts = key.split(/[_\s-]+/);
   return parts[0].toLowerCase() + parts.slice(1).map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
 }
@@ -134,4 +134,19 @@ export function recordedNames(history: unknown): Map<string, string> {
     }
   }
   return names;
+}
+
+/**
+ * The metric that best summarises a run, picked from the keys it logged: validation accuracy
+ * first, then any accuracy, then any loss. Accuracy-like metrics are better when higher,
+ * losses when lower; the caller needs both to say which run won.
+ */
+export function headlineMetric(keys: string[]): { key: string; better: 'max' | 'min' } | null {
+  const pick =
+    keys.find((k) => /^val_?acc/i.test(k)) ??
+    keys.find((k) => /acc/i.test(k)) ??
+    keys.find((k) => /loss/i.test(k)) ??
+    keys[0];
+  if (!pick) return null;
+  return { key: pick, better: /loss|err/i.test(pick) ? 'min' : 'max' };
 }

@@ -1,19 +1,19 @@
-/* A refresh after a write failed; the table still shows the previous payload. */
+/* A refresh after a write failed; the page still shows the previous payload. */
 .dash-stale {
   margin: 0 0 16px;
   font-size: 14px;
   color: var(--fail-ink);
 }
 
-.dash-recent td {
-  white-space: nowrap;
+/* The feed beside the experiments column; stacked on a narrow screen. */
+.dash-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 24px;
+  align-items: start;
 }
-.dash-run {
-  font-weight: 500;
-}
-.dash-exp {
-  color: var(--text);
-}
-.dash-when {
-  color: var(--text-2);
+@media (max-width: 1100px) {
+  .dash-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
