@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------------------------
-  # The Python package: SDK, storage, server, CLI, provenance — and the parity suite.
+  # The Python package: SDK, storage, server, CLI, provenance.
   #
   # Windows is in the matrix on purpose, not for symmetry. The one shipped defect this
   # test suite ever missed was a line-ending bug: `mlexp verify` forced
@@ -57,31 +57,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # Node is here for the parity suite, not for the frontend. tests/test_parity.py
-      # starts the retained Express backend in parity_reference/ and diffs every read route
-      # against the Python server; without Node and parity_reference/node_modules those tests
-      # skip and only the recorded-payload half of the file runs.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: parity_reference/package-lock.json
-
-      - name: Install the Express parity fixture
-        working-directory: parity_reference
-        run: npm ci
-
-      # The parity live diff is the assertion that cannot go stale, so a run where it
-      # quietly skipped is worth much less than it looks. Fail loudly here rather than
-      # let a green tick stand for half a test file.
-      - name: Assert the parity prerequisites are present
-        run: |
-          node --version
-          if [ ! -d parity_reference/node_modules ]; then
-            echo "::error::parity_reference/node_modules is missing — the parity live diff would skip."
-            exit 1
-          fi
-
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -90,9 +65,8 @@ jobs:
       - name: Lint
         run: ruff check src tests
 
-      # -rs prints the reason for every skipped test in the summary. Combined with the
-      # assertion above it means a skip is always visible in the log rather than folded
-      # into a count.
+      # -rs prints the reason for every skipped test in the summary, so a skip is always
+      # visible in the log rather than folded into a count.
       - name: Test
         run: pytest tests -rs -p no:cacheprovider
 

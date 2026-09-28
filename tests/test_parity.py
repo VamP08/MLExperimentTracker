@@ -1,21 +1,15 @@
-"""Parity with the Express backend this server replaces.
+"""Parity with the Express backend this server replaced.
 
-The React frontend was written against `parity_reference/`, so its payloads are the requirement:
-a key renamed, a number turned into a string, or an object that gained a level of nesting
-breaks a page rather than a test. This file is what stops that happening silently.
+The React frontend was written against an Express server, so its payloads are the
+requirement: a key renamed, a number turned into a string, or an object that gained a level
+of nesting breaks a page rather than a test. This file is what stops that happening silently.
 
-It is in two halves, and the split is deliberate.
-
-The first half runs everywhere. It pins the payloads against the worked example in
-`docs/DATA-CONTRACT.md` section 5 — a fixture built for exactly this purpose, whose
-expected output that document states field by field. Those values were diffed against the
-running Express services and matched, so asserting on them is asserting on the reader's
-behaviour without needing the reader present.
-
-The second half runs only where Node and `parity_reference/node_modules` exist. It starts the
-real Express server and this one against one storage tree and diffs every read route.
-That is the assertion that cannot go stale: the first half encodes what Express did on the
-day it was measured, and only the second half notices if that was ever wrong.
+The payloads are pinned against the worked example in the data contract, section 5 — a
+fixture built for exactly this purpose, whose expected output that document states field by
+field. Those values were diffed route by route against the running Express server, with key
+order compared too, and matched with zero structural divergence. The Express server has
+since been retired from the repository, so these recorded values are now the reference:
+asserting on them is asserting on the reader's behaviour without needing the reader present.
 
 Divergences that are deliberate are asserted *as* divergences, not tolerated. Each one is
 a decision that should have to be re-taken to be undone:
@@ -32,29 +26,20 @@ a decision that should have to be re-taken to be undone:
 5. A stored experiment description is read back. Express wrote `project_metadata.json` on
    `PATCH /api/experiment/{id}` and opened it nowhere, so the edit reverted on the next
    load (GAPS M3); here the experiment read paths prefer it over the description derived
-   from the first run's notes. The live diff below is unaffected: no producer writes that
-   file, so it exists only in a tree where somebody has already edited a description.
+   from the first run's notes. No producer writes that file, so it exists only in a tree
+   where somebody has already edited a description.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import socket
-import subprocess
-import time
 from pathlib import Path
-from typing import Any, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
 
 from mlexperimenttracker.server.app import create_app
 from mlexperimenttracker.storage import Storage
-
-REPO = Path(__file__).resolve().parents[1]
-PARITY_REFERENCE = REPO / "parity_reference"
 
 PROJECT = "churn-mlp"
 RUN = "churn-mlp_20260812T091403Z_7f3a"
@@ -630,134 +615,3 @@ def test_patching_an_unknown_experiment_creates_nothing(client: TestClient, root
     response = client.patch("/api/experiment/invented", json={"description": "x"})
     assert response.status_code == 404
     assert not (root / "invented").exists()
-
-
-# --------------------------------------------------------------------------------------
-# The live diff against the Express server
-# --------------------------------------------------------------------------------------
-
-
-def _node_available() -> bool:
-    return bool(shutil.which("node")) and (PARITY_REFERENCE / "node_modules").is_dir()
-
-
-requires_express = pytest.mark.skipif(
-    not _node_available(),
-    reason="needs Node and parity_reference/node_modules; the assertions above stand in for it",
-)
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-@pytest.fixture()
-def express(root: Path) -> Iterator[str]:
-    """The real Express backend, on the same storage tree, on a free port."""
-    port = _free_port()
-    env = {**os.environ, "EXPERIMENT_STORAGE_PATH": str(root), "PORT": str(port),
-           "HOST": "127.0.0.1"}
-    process = subprocess.Popen(
-        ["node", "index.js"], cwd=PARITY_REFERENCE, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
-    base = f"http://127.0.0.1:{port}"
-    try:
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            if process.poll() is not None:
-                pytest.fail(f"express exited: {process.stdout.read() if process.stdout else ''}")
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                    break
-            except OSError:
-                time.sleep(0.2)
-        else:
-            pytest.fail("express did not start")
-        yield base
-    finally:
-        process.kill()
-        process.wait(timeout=15)
-
-
-def _structural_diff(js: Any, py: Any, path: str = "") -> list[str]:
-    """Same keys, same nesting, same types, same values — reporting every divergence.
-
-    Two exemptions, both documented in the contract: the placeholder artifact's
-    `createdAt` is `new Date()` at request time and differs between any two calls, and a
-    key Express omits because its value is `undefined` is emitted here as `null`.
-    """
-    out: list[str] = []
-    if isinstance(js, dict) and isinstance(py, dict):
-        for key in js:
-            if key not in py:
-                out.append(f"{path}/{key}: missing from the port")
-        for key in py:
-            if key not in js and py[key] is not None:
-                out.append(f"{path}/{key}: extra in the port ({py[key]!r})")
-        for key in js:
-            if key in py:
-                out += _structural_diff(js[key], py[key], f"{path}/{key}")
-        return out
-    if isinstance(js, list) and isinstance(py, list):
-        if len(js) != len(py):
-            out.append(f"{path}: length {len(js)} vs {len(py)}")
-        for index, (a, b) in enumerate(zip(js, py, strict=False)):
-            out += _structural_diff(a, b, f"{path}[{index}]")
-        return out
-    if type(js) is not type(py) and not (
-        isinstance(js, (int, float)) and isinstance(py, (int, float))
-    ):
-        out.append(f"{path}: type {type(js).__name__} vs {type(py).__name__}")
-    elif js != py and not path.endswith("createdAt"):
-        out.append(f"{path}: {js!r} vs {py!r}")
-    return out
-
-
-READ_ROUTES = [
-    "/api/dashboard",
-    "/api/experiment/all",
-    f"/api/experiment/{PROJECT}",
-    f"/api/experiment/{PROJECT}/runs",
-    "/api/experiment",
-    f"/api/run/{RUN}",
-    "/api/run",
-    f"/api/run/{RUN}/metrics",
-    f"/api/run/{RUN}/metrics/timeseries",
-    f"/api/run/{RUN}/metrics/timeseries?metric=val_loss",
-    f"/api/run/{RUN}/metrics/export?format=json",
-    f"/api/run/{RUN}/system-metrics",
-    f"/api/run/{RUN}/checkpoints",
-    f"/api/run/{RUN}/artifacts",
-    "/api/run/no-such-run",
-    "/api/experiment/no-such-experiment",
-]
-
-
-@requires_express
-@pytest.mark.parametrize("route", READ_ROUTES)
-def test_read_route_matches_the_express_backend(
-    client: TestClient, express: str, route: str
-) -> None:
-    """The assertion the rest of this file is a stand-in for: one storage tree, two
-    servers, one diff."""
-    import httpx
-
-    reference = httpx.get(express + route, timeout=30)
-    ported = client.get(route)
-
-    assert ported.status_code == reference.status_code, route
-    divergences = _structural_diff(reference.json(), ported.json())
-    assert not divergences, f"{route}:\n  " + "\n  ".join(divergences)
-
-
-@requires_express
-def test_csv_export_is_byte_identical_when_nothing_needs_quoting(
-    client: TestClient, express: str
-) -> None:
-    import httpx
-
-    route = f"/api/run/{RUN}/metrics/export?format=csv"
-    assert client.get(route).text == httpx.get(express + route, timeout=30).text

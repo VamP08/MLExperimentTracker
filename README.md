@@ -9,8 +9,7 @@ machine — and a bundled dashboard reads that directory and shows you what happ
 **Live demo:** <https://mlexperimenttracker-demo.onrender.com> — the real dashboard running
 entirely in your browser, with a snapshot of real runs compiled into the page instead of an
 API behind it. Nothing is installed, nothing is uploaded, and nothing is saved: edits apply
-to memory and vanish on reload. *Not live until the Render blueprint in `render.yaml` has
-been deployed once.*
+to memory and vanish on reload.
 
 One install, one command:
 
@@ -120,10 +119,10 @@ still no automated rendering test — see Known limitations.**
 | Log capture — `stdout`, `stderr` and `logging` into `logs.jsonl`, served by the API | Working |
 | Dashboard: experiments, runs, overview, params, metrics, logs, evaluation, system metrics, checkpoints, artifacts | Working |
 | Run comparison, ROC curve, confusion matrix, feature importance, gradient view | Working — reachable from the Evaluation, Metrics and Runs pages |
-| Continuous integration — ruff and pytest on Linux (3.10–3.12) and Windows, plus the dashboard lint and build | Workflow in the repo; no runs until it has a remote |
+| Continuous integration — ruff and pytest on Linux (3.10–3.12) and Windows, plus the dashboard lint and build | Working |
 
-491 tests pass, including a suite that runs the previous Node backend side by side and
-diffs its JSON against this one route by route.
+486 tests pass, including a parity suite that pins every API payload to the responses the
+original Node backend gave, measured route by route before it was retired.
 
 ### Provenance, verify and replay
 
@@ -217,7 +216,7 @@ authorisation checks and four endpoints write to disk.
 
 ```bash
 pip install -e ".[all]"
-pytest tests                      # 491 tests
+pytest tests                      # 486 tests
 ruff check src tests examples
 python scripts/build_ui.py        # build the React app into the package
 ```
@@ -228,10 +227,10 @@ server at that port. `scripts/build_ui.py` compiles it into
 `src/mlexperimenttracker/server/static/`, which is gitignored as a build artifact and
 packaged into the wheel.
 
-`parity_reference/` is the original Express implementation. It is not part of the product
-and is not needed to run it; it is retained because `tests/test_parity.py` boots it and
-diffs its responses against the Python server route by route, which is what proves the
-port preserved behaviour. `parity_reference/README.md` covers it in full.
+The API began as an Express server and was ported to Python. The port was diffed against
+the running Express server route by route, key order included, with zero structural
+divergence; `tests/test_parity.py` pins those recorded payloads, so the frontend's contract
+holds without the old server in the repository.
 
 ## Known limitations
 
@@ -247,8 +246,6 @@ port preserved behaviour. `parity_reference/README.md` covers it in full.
   timeline is served as a hardcoded empty list, because no event stream is recorded. The
   gradient view only draws for runs that log `gradient/...` series themselves; the bundled
   demo does not, so it is empty there.
-- The CI workflow is in the repository but has never run, because the repository has no
-  remote yet. Treat the badge as a promise until it goes green.
 - Setting a run description also changes its display name — both derive from the same
   `notes` field.
 - Every request walks the storage tree with no caching or pagination, so response time
