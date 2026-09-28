@@ -1,0 +1,138 @@
+.run-head {
+  padding: 24px 0 20px;
+}
+.run-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.run-title h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.run-title-btn {
+  color: var(--text-3);
+}
+.run-title-btn:hover {
+  color: var(--text);
+}
+.run-title-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.run-title-edit .input {
+  flex: 1 1 420px;
+  height: 40px;
+  font-size: 18px;
+  font-weight: 500;
+}
+.run-title-hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.facts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.facts svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  flex: none;
+}
+.facts b {
+  font-weight: 500;
+  color: var(--text);
+}
+.fact-link {
+  color: var(--accent-ink);
+  font-size: 12.5px;
+}
+.id-pill {
+  height: 26px;
+  padding: 0 4px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--sunk);
+  color: var(--text);
+}
+.id-pill code {
+  font-size: 12.5px;
+}
+.id-pill button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-3);
+}
+.id-pill button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.run-tags {
+  flex-wrap: wrap;
+  gap: 6px !important;
+}
+.tag-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: -4px;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.tag:hover .tag-x,
+.tag-x:focus-visible {
+  opacity: 0.8;
+}
+.tag-x svg {
+  width: 11px;
+  height: 11px;
+  color: inherit;
+}
+.tag-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px dashed var(--border-2);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.tag-add:hover {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.tag-add svg {
+  width: 12px;
+  height: 12px;
+}
+.tag-input {
+  height: 26px;
+  width: 140px;
+  font-size: 13px;
+  border-radius: 12px;
+}

@@ -1,206 +1,214 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import './SystemMetrics.css';
-import { apiFetch } from '../../../lib/api';
+import { useEffect, useState } from "react";
+import SeriesChart from "../../Charts/SeriesChart";
+import { apiFetch } from "../../../lib/api";
 
-interface SystemMetric {
-  timestamp: number;
-  cpu_percent?: number;
-  memory_percent?: number;
-  memory_used_mb?: number;
-  memory_available_mb?: number;
-  gpu_utilization?: number;
-  gpu_memory_used_mb?: number;
-  disk_usage_percent?: number;
+/** One sample from `system_metrics.json`: epoch-seconds `timestamp` plus numeric readings. */
+type Sample = Record<string, unknown>;
+
+interface Stats {
+  mean?: number;
+  max?: number;
+  min?: number;
 }
 
-interface SystemMetricsSummary {
-  cpu?: {
-    mean?: number;
-    max?: number;
-    min?: number;
-  };
-  memory?: {
-    mean?: number;
-    max?: number;
-    min?: number;
-  };
-  gpu?: {
-    mean?: number;
-    max?: number;
-    min?: number;
-  };
+/** The older summary-only shape: three resources, percentages only. */
+interface SummaryShape {
+  cpu?: Stats;
+  memory?: Stats;
+  gpu?: Stats;
+}
+
+interface Row {
+  key: string;
+  label: string;
+  unit: "%" | "MB" | "";
+  stats: Stats;
 }
 
 interface Props {
   runId: string;
 }
 
-const SystemMetrics: React.FC<Props> = ({ runId }) => {
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetric[] | null>(null);
-  const [summary, setSummary] = useState<SystemMetricsSummary | null>(null);
+/** Fields the sampler writes, in the order a reader scans them. Unknown fields follow, by name. */
+const FIELDS: Record<string, { label: string; unit: Row["unit"] }> = {
+  cpu_percent: { label: "CPU", unit: "%" },
+  memory_percent: { label: "Memory", unit: "%" },
+  memory_used_mb: { label: "Memory used", unit: "MB" },
+  memory_available_mb: { label: "Memory available", unit: "MB" },
+  disk_usage_percent: { label: "Disk", unit: "%" },
+  gpu_utilization: { label: "GPU utilisation", unit: "%" },
+  gpu_memory_used_mb: { label: "GPU memory used", unit: "MB" },
+};
+const ORDER = Object.keys(FIELDS);
+
+function statsOf(values: number[]): Stats {
+  return {
+    mean: values.reduce((a, b) => a + b, 0) / values.length,
+    max: Math.max(...values),
+    min: Math.min(...values),
+  };
+}
+
+function show(value: number | undefined, unit: Row["unit"]): string {
+  if (value === undefined) return "—";
+  if (unit === "MB") return `${value.toFixed(0)} MB`;
+  return `${value.toFixed(1)}${unit}`;
+}
+
+/**
+ * Host resources sampled while the run trained. Every field the samples carry gets a
+ * summary row and a chart, rather than only CPU, memory and GPU — a field the sampler
+ * wrote is data the reader asked for.
+ */
+const SystemMetrics = ({ runId }: Props) => {
+  const [samples, setSamples] = useState<Sample[] | null>(null);
+  const [summary, setSummary] = useState<SummaryShape | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSystemMetrics = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await apiFetch(`/api/run/${runId}/system-metrics`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch system metrics');
-      }
-
-      const data = await response.json();
-      
-      if (Array.isArray(data)) {
-        setSystemMetrics(data);
-        calculateSummary(data);
-      } else if (data.summary) {
-        setSummary(data.summary);
-      } else {
-        setSystemMetrics(null);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setSamples(null);
+    setSummary(null);
+    apiFetch(`/api/run/${runId}/system-metrics`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        // An absent or malformed file arrives as `{}`, which means "nothing recorded".
+        if (Array.isArray(data)) setSamples(data.filter((s): s is Sample => !!s && typeof s === "object"));
+        else if (data && data.summary) setSummary(data.summary);
+      })
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Unknown error"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, [runId]);
 
-  useEffect(() => {
-    fetchSystemMetrics();
-  }, [fetchSystemMetrics]);
+  const keys = samples
+    ? Array.from(
+        new Set(
+          samples.flatMap((s) =>
+            Object.keys(s).filter((k) => k !== "timestamp" && typeof s[k] === "number" && Number.isFinite(s[k])),
+          ),
+        ),
+      ).sort((a, b) => {
+        const ia = ORDER.indexOf(a);
+        const ib = ORDER.indexOf(b);
+        return (ia < 0 ? ORDER.length : ia) - (ib < 0 ? ORDER.length : ib) || a.localeCompare(b);
+      })
+    : [];
 
-  const calculateSummary = (metrics: SystemMetric[]) => {
-    if (!metrics || metrics.length === 0) return;
+  const valuesOf = (key: string) =>
+    (samples ?? []).map((s) => s[key]).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 
-    const cpuValues = metrics.map(m => m.cpu_percent).filter(v => v !== undefined) as number[];
-    const memValues = metrics.map(m => m.memory_percent).filter(v => v !== undefined) as number[];
-    const gpuValues = metrics.map(m => m.gpu_utilization).filter(v => v !== undefined) as number[];
+  const rows: Row[] = samples
+    ? keys.map((key) => ({ key, label: FIELDS[key]?.label ?? key, unit: FIELDS[key]?.unit ?? "", stats: statsOf(valuesOf(key)) }))
+    : summary
+      ? (["cpu", "memory", "gpu"] as const)
+          .filter((k) => summary[k])
+          .map((k) => ({
+            key: k,
+            label: k === "cpu" ? "CPU" : k === "memory" ? "Memory" : "GPU utilisation",
+            unit: "%" as const,
+            stats: summary[k] as Stats,
+          }))
+      : [];
 
-    const calcStats = (values: number[]) => ({
-      mean: values.reduce((a, b) => a + b, 0) / values.length,
-      max: Math.max(...values),
-      min: Math.min(...values)
-    });
+  const t0 = samples?.find((s) => typeof s.timestamp === "number")?.timestamp as number | undefined;
+  const span =
+    samples && t0 !== undefined
+      ? (samples[samples.length - 1].timestamp as number) - t0
+      : undefined;
 
-    setSummary({
-      cpu: cpuValues.length > 0 ? calcStats(cpuValues) : undefined,
-      memory: memValues.length > 0 ? calcStats(memValues) : undefined,
-      gpu: gpuValues.length > 0 ? calcStats(gpuValues) : undefined
-    });
-  };
+  const head = (
+    <div className="panel-head">
+      <h2 id="sys-head">System metrics</h2>
+      {samples && samples.length > 0 && (
+        <span className="sub num">
+          {samples.length} samples{typeof span === "number" && span > 0 ? ` over ${span.toFixed(0)} s` : ""}
+        </span>
+      )}
+    </div>
+  );
 
-  if (loading) {
-    return <div className="system-metrics-loading">Loading system metrics...</div>;
-  }
-
-  if (error) {
-    return <div className="system-metrics-error">Error: {error}</div>;
-  }
-
-  if (!systemMetrics && !summary) {
-    return <div className="system-metrics-empty">No system metrics available</div>;
+  if (loading || error || rows.length === 0) {
+    return (
+      <div className="stack">
+        <section className="panel" aria-labelledby="sys-head">
+          {head}
+          {loading ? (
+            <div className="state">Loading system metrics…</div>
+          ) : error ? (
+            <div className="state error">Could not load system metrics: {error}</div>
+          ) : (
+            <div className="state">
+              <h3>No system metrics available</h3>
+              <p>
+                Pass <code>system_metrics=True</code> to <code>init()</code> to sample CPU, memory and GPU while the run
+                trains. Sampling needs the <code>system</code> extra installed.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+    );
   }
 
   return (
-    <div className="system-metrics">
-      <h3>System Metrics</h3>
-      
-      {summary && (
-        <div className="metrics-summary">
-          {summary.cpu && (
-            <div className="metric-card">
-              <h4>CPU Usage</h4>
-              <div className="metric-stats">
-                <div className="stat">
-                  <span className="label">Mean:</span>
-                  <span className="value">{summary.cpu.mean?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Max:</span>
-                  <span className="value">{summary.cpu.max?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Min:</span>
-                  <span className="value">{summary.cpu.min?.toFixed(1)}%</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {summary.memory && (
-            <div className="metric-card">
-              <h4>Memory Usage</h4>
-              <div className="metric-stats">
-                <div className="stat">
-                  <span className="label">Mean:</span>
-                  <span className="value">{summary.memory.mean?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Max:</span>
-                  <span className="value">{summary.memory.max?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Min:</span>
-                  <span className="value">{summary.memory.min?.toFixed(1)}%</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {summary.gpu && (
-            <div className="metric-card">
-              <h4>GPU Utilization</h4>
-              <div className="metric-stats">
-                <div className="stat">
-                  <span className="label">Mean:</span>
-                  <span className="value">{summary.gpu.mean?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Max:</span>
-                  <span className="value">{summary.gpu.max?.toFixed(1)}%</span>
-                </div>
-                <div className="stat">
-                  <span className="label">Min:</span>
-                  <span className="value">{summary.gpu.min?.toFixed(1)}%</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {systemMetrics && systemMetrics.length > 0 && (
-        <div className="metrics-table-container">
-          <table className="metrics-table">
+    <div className="stack">
+      <section className="panel" aria-labelledby="sys-head">
+        {head}
+        <div className="table-wrap">
+          <table className="table">
             <thead>
               <tr>
-                <th>Timestamp</th>
-                {systemMetrics[0].cpu_percent !== undefined && <th>CPU %</th>}
-                {systemMetrics[0].memory_percent !== undefined && <th>Memory %</th>}
-                {systemMetrics[0].memory_used_mb !== undefined && <th>Memory Used (MB)</th>}
-                {systemMetrics[0].gpu_utilization !== undefined && <th>GPU %</th>}
-                {systemMetrics[0].gpu_memory_used_mb !== undefined && <th>GPU Memory (MB)</th>}
+                <th>Resource</th>
+                <th className="r">Mean</th>
+                <th className="r">Min</th>
+                <th className="r">Max</th>
               </tr>
             </thead>
             <tbody>
-              {systemMetrics.slice(0, 20).map((metric, idx) => (
-                <tr key={idx}>
-                  <td>{new Date(metric.timestamp * 1000).toLocaleTimeString()}</td>
-                  {metric.cpu_percent !== undefined && <td>{metric.cpu_percent.toFixed(1)}</td>}
-                  {metric.memory_percent !== undefined && <td>{metric.memory_percent.toFixed(1)}</td>}
-                  {metric.memory_used_mb !== undefined && <td>{metric.memory_used_mb.toFixed(0)}</td>}
-                  {metric.gpu_utilization !== undefined && <td>{metric.gpu_utilization.toFixed(1)}</td>}
-                  {metric.gpu_memory_used_mb !== undefined && <td>{metric.gpu_memory_used_mb.toFixed(0)}</td>}
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td className="r mono">{show(row.stats.mean, row.unit)}</td>
+                  <td className="r mono">{show(row.stats.min, row.unit)}</td>
+                  <td className="r mono">{show(row.stats.max, row.unit)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {systemMetrics.length > 20 && (
-            <p className="table-note">Showing first 20 of {systemMetrics.length} entries</p>
-          )}
         </div>
+      </section>
+
+      {samples && samples.length > 0 && (
+        <section className="panel" aria-labelledby="sys-series">
+          <div className="panel-head">
+            <h2 id="sys-series">Over the run</h2>
+            <span className="sub">x-axis is the sample number</span>
+          </div>
+          <div className="series-clip">
+            <div className="series-grid-wrap">
+              {rows.map((row, i) => (
+                <SeriesChart
+                  key={row.key}
+                  name={row.unit ? `${row.label} (${row.unit})` : row.label}
+                  index={i}
+                  data={samples.map((s, n) => ({
+                    step: n,
+                    value: s[row.key],
+                    timestamp: typeof s.timestamp === "number" && t0 !== undefined ? s.timestamp - t0 : null,
+                  }))}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
       )}
     </div>
   );

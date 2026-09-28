@@ -1,87 +1,45 @@
-/* Class names are global in this app and have collided before, so every rule
-   here is prefixed with the component name. */
-
 .breadcrumbs {
-  margin-bottom: 0.75rem;
+  min-width: 0;
 }
-
 .breadcrumbs-list {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 0;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.875rem;
-  line-height: 1.4;
+  font-size: 14px;
+  min-width: 0;
 }
-
 .breadcrumbs-item {
   display: flex;
   align-items: center;
-  /* Without this a flex child refuses to shrink below its content width, and
-     the ellipsis below never engages. */
+  gap: 8px;
   min-width: 0;
 }
-
-/* The last crumb is the one that grows long — a run name is
-   `<project>_<timestamp>_<hex>` — so it gets the remaining room and the
-   others keep their natural width. */
-.breadcrumbs-item:last-child {
-  flex: 1 1 auto;
-}
-
 .breadcrumbs-separator {
-  color: var(--card-foreground);
-  opacity: 0.45;
-  padding: 0 0.5rem;
-  flex: none;
-  user-select: none;
+  color: var(--border-2);
 }
-
 .breadcrumbs-link,
-.breadcrumbs-text,
+.breadcrumbs-text {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.breadcrumbs-link:hover {
+  color: var(--text);
+}
 .breadcrumbs-current {
-  display: block;
-  max-width: 22rem;
+  color: var(--text);
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 44ch;
 }
 
-.breadcrumbs-link {
-  color: var(--card-foreground);
-  text-decoration: none;
-  border-radius: var(--radius-sm);
-  transition: color var(--transition-fast);
-}
-
-.breadcrumbs-link:hover,
-.breadcrumbs-link:focus-visible {
-  color: var(--primary);
-  text-decoration: underline;
-}
-
-/* A crumb with no target: shown, but not clickable. */
-.breadcrumbs-text {
-  color: var(--card-foreground);
-  opacity: 0.75;
-}
-
-.breadcrumbs-current {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-@media (max-width: 768px) {
-  .breadcrumbs-link,
-  .breadcrumbs-text,
-  .breadcrumbs-current {
-    max-width: 11rem;
-  }
-
-  .breadcrumbs-separator {
-    padding: 0 0.35rem;
+@media (max-width: 900px) {
+  .breadcrumbs-item:not(:last-child),
+  .breadcrumbs-item:last-child .breadcrumbs-separator {
+    display: none;
   }
 }

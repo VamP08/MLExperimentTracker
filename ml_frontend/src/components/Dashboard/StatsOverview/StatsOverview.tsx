@@ -1,6 +1,4 @@
-// src/components/dashboard/StatsOverview.tsx
-import React from 'react';
-import './StatsOverview.css';
+import "./StatsOverview.css";
 
 interface StatItem {
   title: string;
@@ -11,16 +9,17 @@ interface StatsOverviewProps {
   stats: StatItem[];
 }
 
-const StatsOverview: React.FC<StatsOverviewProps> = ({ stats }) => {
+/** A compact row of label/value facts, read left to right like a sentence. */
+const StatsOverview = ({ stats }: StatsOverviewProps) => {
   return (
-    <div className="stats-overview">
-      {stats.map((stat, index) => (
-        <div key={index} className="stat-card">
-          <h3 className="stat-title">{stat.title}</h3>
-          <p className="stat-value">{stat.value}</p>
+    <dl className="stats-overview">
+      {stats.map((stat) => (
+        <div key={stat.title} className="stats-item">
+          <dt>{stat.title}</dt>
+          <dd className="num">{stat.value}</dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 };
 

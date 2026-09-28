@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { FiDownload } from 'react-icons/fi';
 import './Provenance.css';
 import { apiFetch, IS_DEMO } from '../../../lib/api';
+import { downloadFrom } from '../../../lib/download';
 
 interface GitState {
   available?: boolean;
@@ -50,19 +52,31 @@ interface Props {
   runId: string;
 }
 
+/** Packages shown before "Show all": enough to see the stack, short enough to scroll past. */
+const PACKAGE_PREVIEW = 12;
+
+const DEMO_PATCH_NOTE =
+  'Not available in the static demo: the patch is served from the run directory, and there is no server.';
+
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const shortDigest = (digest: string): string => digest.slice(0, 12);
-
+/**
+ * The world a run was recorded in: source tree, interpreter, packages, data and machine.
+ *
+ * Only what the manifest says. Whether that world still matches today is the verification
+ * summary's job, above the tabs, and is not repeated here.
+ */
 const Provenance: React.FC<Props> = ({ runId }) => {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showPackages, setShowPackages] = useState(false);
+  const [showAllPackages, setShowAllPackages] = useState(false);
+  const [packageQuery, setPackageQuery] = useState('');
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const fetchProvenance = useCallback(async () => {
     try {
@@ -71,8 +85,7 @@ const Provenance: React.FC<Props> = ({ runId }) => {
       const response = await apiFetch(`/api/run/${runId}/provenance`);
 
       // Most runs have no manifest: everything written before format 1.1, and every run
-      // whose capture failed. That is a normal state, not a failure, and it renders as
-      // nothing at all rather than as an empty card the user has to learn to ignore.
+      // whose capture failed. That is a normal state, not a failure.
       if (response.status === 404) {
         setManifest(null);
         return;
@@ -92,194 +105,360 @@ const Provenance: React.FC<Props> = ({ runId }) => {
     fetchProvenance();
   }, [runId, fetchProvenance]);
 
-  if (loading) {
-    return <div className="provenance-placeholder">Loading provenance...</div>;
-  }
-
-  if (error) {
-    return <div className="provenance-placeholder provenance-error">Error: {error}</div>;
-  }
-
-  if (!manifest) {
-    return null;
+  if (loading || error || !manifest) {
+    return (
+      <div className="stack">
+        <section className="panel" aria-labelledby="prov-title">
+          <div className="panel-head">
+            <h2 id="prov-title">Provenance</h2>
+          </div>
+          {loading ? (
+            <div className="state">Loading provenance…</div>
+          ) : error ? (
+            <div className="state error">Could not load provenance: {error}</div>
+          ) : (
+            <div className="state">
+              <h3>No provenance recorded</h3>
+              <p>
+                Runs recorded before format 1.1, runs tracked with <code>provenance=False</code>, and runs whose
+                capture failed have no manifest.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+    );
   }
 
   const git = manifest.git ?? {};
   const packages = manifest.packages ?? {};
   const packageNames = Object.keys(packages);
   const gpus = manifest.hardware?.gpus ?? [];
+  const cpuCount = manifest.hardware?.cpu_count;
   const datasets = manifest.datasets ?? [];
+  const environment = Object.entries(manifest.environment ?? {});
+  const argv = manifest.command?.argv ?? [];
   const hasPatch = Boolean(git.diff_file);
+  const untracked = git.untracked ?? [];
 
-  const badge = !git.available
-    ? { label: 'NO REPOSITORY', className: 'provenance-badge provenance-badge-unknown' }
-    : git.dirty
-      ? { label: 'UNCOMMITTED CHANGES', className: 'provenance-badge provenance-badge-dirty' }
-      : { label: 'CLEAN', className: 'provenance-badge provenance-badge-clean' };
+  const query = packageQuery.trim().toLowerCase();
+  const matchingPackages = query ? packageNames.filter((name) => name.toLowerCase().includes(query)) : packageNames;
+  const visiblePackages =
+    query || showAllPackages ? matchingPackages : matchingPackages.slice(0, PACKAGE_PREVIEW);
+
+  const platform =
+    [manifest.platform?.system, manifest.platform?.release, manifest.platform?.machine].filter(Boolean).join(' ') ||
+    'unknown';
+
+  const downloadPatch = async () => {
+    // Served as an attachment straight from the run directory, so the static demo cannot
+    // produce it — see the same case on the Logs tab. The row above still reports the
+    // diff's real size, which is the part that is evidence.
+    if (IS_DEMO) return;
+    setDownloadError(null);
+    try {
+      const safe = runId.replace(/[^A-Za-z0-9._-]/g, '_');
+      await downloadFrom(`/api/run/${runId}/patch`, `${safe}_uncommitted.patch`);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed');
+    }
+  };
 
   return (
-    <div className="provenance">
-      <div className="provenance-header">
-        <h3 className="provenance-title">Provenance</h3>
-        <span className={badge.className}>{badge.label}</span>
-      </div>
-
-      <div className="provenance-section">
+    <div className="stack">
+      <section className="panel" aria-labelledby="prov-source">
+        <div className="panel-head">
+          <h2 id="prov-source">Source</h2>
+          {manifest.captured_at && (
+            <span className="sub">Captured {new Date(manifest.captured_at).toLocaleString()}</span>
+          )}
+          <span className="spacer" />
+          {hasPatch && (
+            <button
+              type="button"
+              className="btn provenance-download"
+              onClick={downloadPatch}
+              aria-disabled={IS_DEMO || undefined}
+              title={IS_DEMO ? DEMO_PATCH_NOTE : undefined}
+            >
+              <FiDownload />
+              Download patch
+            </button>
+          )}
+          {downloadError && (
+            <span className="provenance-error" role="alert">
+              Could not download the patch: {downloadError}
+            </span>
+          )}
+        </div>
         {git.available ? (
-          <>
-            <div className="provenance-row">
-              <span className="provenance-label">Commit</span>
-              <span className="provenance-value provenance-mono">
-                {git.commit ? shortDigest(git.commit) : 'none yet'}
-                {git.branch ? <span className="provenance-branch">{git.branch}</span> : null}
-              </span>
-            </div>
-            {git.remote ? (
-              <div className="provenance-row">
-                <span className="provenance-label">Remote</span>
-                <span className="provenance-value provenance-break">{git.remote}</span>
-              </div>
-            ) : null}
-            {git.untracked && git.untracked.length > 0 ? (
-              <div className="provenance-row">
-                <span className="provenance-label">Untracked</span>
-                <span className="provenance-value">
-                  {git.untracked.length}
-                  {git.untracked_truncated ? '+ (capped)' : ''} file
-                  {git.untracked.length === 1 ? '' : 's'}
-                </span>
-              </div>
-            ) : null}
-          </>
+          <table className="kv">
+            <tbody>
+              <tr>
+                <td>Commit</td>
+                <td>{git.commit ?? 'none yet'}</td>
+              </tr>
+              {git.branch && (
+                <tr>
+                  <td>Branch</td>
+                  <td>{git.branch}</td>
+                </tr>
+              )}
+              {git.remote && (
+                <tr>
+                  <td>Remote</td>
+                  <td>{git.remote}</td>
+                </tr>
+              )}
+              <tr>
+                <td>Working tree</td>
+                <td className="provenance-text">
+                  {git.dirty ? (
+                    <span className="badge drift">Uncommitted changes</span>
+                  ) : (
+                    <span className="badge ok">Clean</span>
+                  )}
+                  {hasPatch && (
+                    <span className="muted num provenance-inline">
+                      {formatBytes(git.diff_bytes ?? 0)} patch
+                      {git.diff_truncated ? ' — truncated, will not apply cleanly' : ''}
+                    </span>
+                  )}
+                </td>
+              </tr>
+              {untracked.length > 0 && (
+                <tr>
+                  <td>
+                    Untracked files{' '}
+                    <span className="num">
+                      ({untracked.length}
+                      {git.untracked_truncated ? '+, capped' : ''})
+                    </span>
+                  </td>
+                  <td>
+                    <ul className="provenance-files">
+                      {untracked.map((file) => (
+                        <li key={file}>{file}</li>
+                      ))}
+                    </ul>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         ) : (
-          <div className="provenance-row">
-            <span className="provenance-label">Git</span>
-            <span className="provenance-value">{git.reason ?? 'not recorded'}</span>
+          <div className="state">
+            <h3>No repository</h3>
+            <p>{git.reason ?? 'Git state was not recorded.'}</p>
           </div>
         )}
+        {git.available && git.reason && <p className="provenance-reason">{git.reason}</p>}
+      </section>
 
-        {hasPatch ? (
-          <div className="provenance-row">
-            <span className="provenance-label">Patch</span>
-            <span className="provenance-value">
-              {/* Served as an attachment straight from the run directory, so the static
-                  demo cannot produce it — see the same case on the Logs tab. The row still
-                  reports the diff's real size, which is the part that is evidence. */}
-              {IS_DEMO ? (
-                <span
-                  className="provenance-download provenance-download-disabled"
-                  title="Not available in the static demo: the patch is served from the run directory, and there is no server."
-                >
-                  Download diff
-                </span>
-              ) : (
-                <a className="provenance-download" href={`/api/run/${runId}/patch`}>
-                  Download diff
-                </a>
-              )}
-              <span className="provenance-note">
-                {formatBytes(git.diff_bytes ?? 0)}
-                {git.diff_truncated ? ' — truncated, will not apply cleanly' : ''}
-              </span>
-            </span>
-          </div>
-        ) : null}
-
-        {git.available && git.reason ? (
-          <p className="provenance-reason">{git.reason}</p>
-        ) : null}
-      </div>
-
-      <div className="provenance-section">
-        <div className="provenance-row">
-          <span className="provenance-label">Python</span>
-          <span className="provenance-value">
-            {manifest.python?.version ?? 'unknown'}
-            {manifest.python?.implementation ? ` (${manifest.python.implementation})` : ''}
-          </span>
+      <section className="panel" aria-labelledby="prov-env">
+        <div className="panel-head">
+          <h2 id="prov-env">Environment</h2>
         </div>
-        <div className="provenance-row">
-          <span className="provenance-label">Platform</span>
-          <span className="provenance-value">
-            {[manifest.platform?.system, manifest.platform?.release, manifest.platform?.machine]
-              .filter(Boolean)
-              .join(' ') || 'unknown'}
-          </span>
-        </div>
-        {manifest.hardware?.cpu_count ? (
-          <div className="provenance-row">
-            <span className="provenance-label">CPUs</span>
-            <span className="provenance-value">{manifest.hardware.cpu_count}</span>
+        <table className="kv">
+          <tbody>
+            <tr>
+              <td>Python</td>
+              <td>
+                {manifest.python?.version ?? 'unknown'}
+                {manifest.python?.implementation ? ` (${manifest.python.implementation})` : ''}
+              </td>
+            </tr>
+            {manifest.python?.executable && (
+              <tr>
+                <td>Interpreter</td>
+                <td>{manifest.python.executable}</td>
+              </tr>
+            )}
+            <tr>
+              <td>Platform</td>
+              <td>{platform}</td>
+            </tr>
+            {manifest.platform?.processor && (
+              <tr>
+                <td>Processor</td>
+                <td>{manifest.platform.processor}</td>
+              </tr>
+            )}
+            {manifest.command?.cwd && (
+              <tr>
+                <td>Working directory</td>
+                <td>{manifest.command.cwd}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+        {argv.length > 0 && (
+          <div className="panel-body provenance-command">
+            <h3>Command line</h3>
+            <pre className="provenance-code">{argv.join(' ')}</pre>
           </div>
-        ) : null}
-        {gpus.map((gpu, index) => (
-          <div className="provenance-row" key={index}>
-            <span className="provenance-label">GPU</span>
-            <span className="provenance-value">
-              {gpu.name ?? 'unknown'}
-              {gpu.memory_total_mb ? ` — ${gpu.memory_total_mb} MB` : ''}
-              {gpu.cuda_version ? ` — CUDA ${gpu.cuda_version}` : ''}
-            </span>
-          </div>
-        ))}
-      </div>
+        )}
+      </section>
 
-      {datasets.length > 0 ? (
-        <div className="provenance-section">
-          <span className="provenance-subtitle">Datasets</span>
-          {datasets.map((dataset, index) => (
-            <div className="provenance-dataset" key={index}>
-              <span className="provenance-value provenance-break">{dataset.path}</span>
-              {dataset.error ? (
-                <span className="provenance-note provenance-error">{dataset.error}</span>
-              ) : (
-                <span className="provenance-note provenance-mono">
-                  {dataset.algorithm ?? 'sha256'}:
-                  {dataset.digest ? shortDigest(dataset.digest) : '—'}
-                  {typeof dataset.bytes === 'number' ? ` — ${formatBytes(dataset.bytes)}` : ''}
-                  {typeof dataset.files === 'number' ? ` — ${dataset.files} file(s)` : ''}
-                </span>
-              )}
+      <section className="panel" aria-labelledby="prov-packages">
+        <div className="panel-head">
+          <h2 id="prov-packages">Packages</h2>
+          <span className="sub num">{packageNames.length}</span>
+          <span className="spacer" />
+          {packageNames.length > PACKAGE_PREVIEW && (
+            <>
+              <label className="sr-only" htmlFor="prov-package-filter">
+                Filter packages
+              </label>
+              <input
+                id="prov-package-filter"
+                className="input provenance-filter"
+                type="search"
+                placeholder="Filter packages"
+                value={packageQuery}
+                onChange={(event) => setPackageQuery(event.target.value)}
+              />
+            </>
+          )}
+        </div>
+        {packageNames.length === 0 ? (
+          <div className="state">No installed packages were recorded.</div>
+        ) : matchingPackages.length === 0 ? (
+          <div className="state">No package matches &ldquo;{packageQuery}&rdquo;.</div>
+        ) : (
+          <>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Version</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePackages.map((name) => (
+                    <tr key={name}>
+                      <td className="mono">{name}</td>
+                      <td className="mono">{packages[name]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
-        </div>
-      ) : null}
+            {!query && matchingPackages.length > PACKAGE_PREVIEW && (
+              <div className="provenance-more">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  aria-expanded={showAllPackages}
+                  onClick={() => setShowAllPackages((open) => !open)}
+                >
+                  {showAllPackages ? `Show first ${PACKAGE_PREVIEW}` : `Show all ${matchingPackages.length}`}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
-      <div className="provenance-section">
-        <div className="provenance-row">
-          <span className="provenance-label">Packages</span>
-          <span className="provenance-value">
-            {packageNames.length}
-            {packageNames.length > 0 ? (
-              <button
-                className="provenance-toggle"
-                onClick={() => setShowPackages((open) => !open)}
-                aria-expanded={showPackages}
-              >
-                {showPackages ? 'Hide' : 'Show'}
-              </button>
-            ) : null}
-          </span>
+      <section className="panel" aria-labelledby="prov-datasets">
+        <div className="panel-head">
+          <h2 id="prov-datasets">Datasets</h2>
+          <span className="sub num">{datasets.length}</span>
         </div>
-        {showPackages ? (
-          <ul className="provenance-packages">
-            {packageNames.map((name) => (
-              <li className="provenance-package" key={name}>
-                <span className="provenance-mono">{name}</span>
-                <span className="provenance-mono provenance-package-version">
-                  {packages[name]}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+        {datasets.length === 0 ? (
+          <div className="state">
+            No datasets were hashed. Pass <code>datasets=[...]</code> to <code>init()</code> to fingerprint them.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Digest</th>
+                  <th className="r">Size</th>
+                  <th className="r">Files</th>
+                </tr>
+              </thead>
+              <tbody>
+                {datasets.map((dataset, index) => {
+                  const digest = dataset.digest ?? dataset.sha256;
+                  const algorithm = dataset.algorithm ?? 'sha256';
+                  return (
+                    <tr key={index}>
+                      <td className="mono provenance-path">{dataset.path}</td>
+                      {dataset.error ? (
+                        <td colSpan={3} className="provenance-error">
+                          {dataset.error}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="mono provenance-digest" title={digest ? `${algorithm}:${digest}` : undefined}>
+                            {digest ? (algorithm === 'sha256' ? digest : `${algorithm}:${digest}`) : '—'}
+                          </td>
+                          <td className="r">{typeof dataset.bytes === 'number' ? formatBytes(dataset.bytes) : '—'}</td>
+                          <td className="r">{typeof dataset.files === 'number' ? dataset.files : '—'}</td>
+                        </>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {manifest.captured_at ? (
-        <p className="provenance-captured">
-          Captured {new Date(manifest.captured_at).toLocaleString()}
-        </p>
-      ) : null}
+      {(cpuCount || gpus.length > 0) && (
+        <section className="panel" aria-labelledby="prov-hardware">
+          <div className="panel-head">
+            <h2 id="prov-hardware">Hardware</h2>
+          </div>
+          <table className="kv">
+            <tbody>
+              {cpuCount ? (
+                <tr>
+                  <td>CPUs</td>
+                  <td>{cpuCount}</td>
+                </tr>
+              ) : null}
+              {gpus.map((gpu, index) => (
+                <tr key={index}>
+                  <td>{gpus.length > 1 ? `GPU ${index}` : 'GPU'}</td>
+                  <td>
+                    {gpu.name ?? 'unknown'}
+                    {gpu.memory_total_mb ? ` — ${gpu.memory_total_mb} MB` : ''}
+                    {gpu.driver_version ? ` — driver ${gpu.driver_version}` : ''}
+                    {gpu.cuda_version ? ` — CUDA ${gpu.cuda_version}` : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      <section className="panel" aria-labelledby="prov-vars">
+        <div className="panel-head">
+          <h2 id="prov-vars">Environment variables</h2>
+          <span className="sub">Allowlisted names only</span>
+        </div>
+        {environment.length === 0 ? (
+          <div className="state">None of the allowlisted variables were set when the run started.</div>
+        ) : (
+          <table className="kv">
+            <tbody>
+              {environment.map(([name, value]) => (
+                <tr key={name}>
+                  <td className="mono">{name}</td>
+                  <td>{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </div>
   );
 };

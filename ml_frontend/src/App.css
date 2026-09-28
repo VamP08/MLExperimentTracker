@@ -1,42 +1,31 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  background-color: var(--background);
-  color: var(--foreground);
+  height: 100%;
+  overflow: clip;
 }
 
-.app-container {
-  display: flex;
+.shell {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  overflow: clip;
 }
 
-.app-main {
-  flex: 1;
-  padding: 1.5rem;
+.main {
+  /* Positioned so absolutely placed descendants (screen-reader labels, menus) are contained and
+     clipped here instead of stretching the document past the viewport. */
+  position: relative;
+  min-width: 0;
   overflow-y: auto;
-  transition: padding var(--transition);
+  background: var(--bg);
+  /* Keeps anchored content clear of the pinned top bar and section sub-menu. */
+  scroll-padding-top: 112px;
 }
 
-.settings-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 80vh;
-  font-size: 1.5rem;
-  color: var(--card-foreground);
-  background-color: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  transition: all var(--transition);
-}
-
-.settings-placeholder:hover {
-  box-shadow: var(--shadow-md);
-}
-
-@media (max-width: 768px) {
-  .app-main {
-    padding: 1rem;
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

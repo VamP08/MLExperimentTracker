@@ -1,265 +1,62 @@
-.confusion-matrix {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  border-radius: 12px;
-  padding: 24px;
-  color: #fff;
-}
-
-.confusion-matrix.loading,
-.confusion-matrix.error,
-.confusion-matrix.empty {
-  text-align: center;
-  padding: 48px;
-  font-size: 16px;
-  color: #aaa;
-}
-
-.confusion-matrix.error {
-  color: #ef4444;
-  background: linear-gradient(135deg, #2e1a1a 0%, #3e1616 100%);
-}
-
-.matrix-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.matrix-header h3 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.matrix-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.matrix-controls label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #aaa;
-}
-
-.matrix-controls select {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.matrix-controls select:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.matrix-metrics {
-  margin-bottom: 24px;
-  padding: 16px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: 8px;
-}
-
-.matrix-metrics .metric-item {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-}
-
-.matrix-metrics .metric-label {
-  font-size: 14px;
-  color: #aaa;
-}
-
-.matrix-metrics .metric-value {
-  font-size: 24px;
-  font-weight: 600;
-  color: #10b981;
-}
-
-.matrix-container {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.matrix-labels-vertical {
-  display: flex;
-  align-items: center;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-}
-
-.matrix-labels-vertical .axis-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #aaa;
-  text-align: center;
-}
-
-.matrix-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.matrix-table-wrapper {
+.cm-wrap {
   overflow-x: auto;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  padding: 16px;
 }
-
-.matrix-table {
+.cm {
   border-collapse: separate;
-  border-spacing: 4px;
-  width: 100%;
+  border-spacing: 3px;
+  font-variant-numeric: tabular-nums;
 }
-
-.matrix-table .corner-cell {
-  background: transparent;
-  border: none;
-}
-
-.matrix-table .column-header,
-.matrix-table .row-header {
-  background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
-  padding: 12px;
-  font-weight: 600;
-  text-align: center;
-  font-size: 14px;
-  border-radius: 4px;
-}
-
-.matrix-cell {
-  padding: 16px;
-  text-align: center;
+.cm th {
+  font-size: 13px;
   font-weight: 500;
-  font-size: 14px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  cursor: default;
-  min-width: 80px;
+  color: var(--text-2);
+  white-space: nowrap;
 }
-
-.matrix-cell:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 10;
-}
-
-.matrix-cell.correct {
-  border: 2px solid rgba(16, 185, 129, 0.5);
-}
-
-.matrix-cell.incorrect {
-  border: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.matrix-labels-horizontal {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.matrix-labels-horizontal .axis-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #aaa;
-}
-
-.class-metrics {
-  margin-top: 32px;
-}
-
-.class-metrics h4 {
-  margin: 0 0 16px 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.metrics-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.metrics-table thead {
-  background: rgba(59, 130, 246, 0.2);
-}
-
-.metrics-table th {
-  padding: 12px 16px;
+.cm-corner {
+  vertical-align: bottom;
   text-align: left;
+  padding: 0 12px 6px 0;
+}
+.cm-axis-top {
+  text-align: center;
+  padding-bottom: 2px;
+}
+.cm-label {
+  padding: 4px 8px;
+  color: var(--text);
+}
+.cm-row {
+  text-align: right;
+  padding-right: 12px;
+}
+
+/*
+ * Single-hue scale from the panel ground to the accent. The top of the scale stops short of
+ * the full accent so the numbers, always drawn in body ink, keep at least 4.5:1 contrast.
+ */
+.cm-cell {
+  min-width: 64px;
+  height: 48px;
+  padding: 0 12px;
+  text-align: center;
+  border-radius: 4px;
+  font-size: 13.5px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) calc(var(--i, 0) * 60%), var(--bg));
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+[data-theme="dark"] .cm-cell {
+  background: color-mix(in srgb, var(--accent) calc(var(--i, 0) * 70%), var(--bg));
+}
+.cm-cell.diag {
   font-weight: 600;
-  color: #3b82f6;
-  font-size: 14px;
 }
-
-.metrics-table tbody tr {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  transition: background 0.2s ease;
+.cm-note {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  color: var(--text-2);
 }
-
-.metrics-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.metrics-table td {
-  padding: 12px 16px;
-  font-size: 14px;
-}
-
-.metrics-table .class-label {
-  font-weight: 500;
-  color: #fff;
-}
-
-.metrics-table .metric-cell {
-  color: #aaa;
-  font-family: 'Courier New', monospace;
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
-  .matrix-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .matrix-container {
-    flex-direction: column;
-  }
-
-  .matrix-labels-vertical {
-    writing-mode: horizontal-tb;
-    transform: none;
-  }
-
-  .matrix-table {
-    font-size: 12px;
-  }
-
-  .matrix-cell {
-    padding: 8px;
-    min-width: 60px;
-  }
+.cm-classes {
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--r-panel) var(--r-panel);
 }

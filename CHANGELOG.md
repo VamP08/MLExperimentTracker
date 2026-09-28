@@ -14,11 +14,26 @@ two move at different speeds. Both are listed below.
 
 ### Changed
 
-- **`ml_backend/` is now `parity_reference/`.** The directory holds the original Express
-  implementation, kept only so `tests/test_parity.py` can boot it and diff its responses
-  against the Python server. Sitting next to `src/` under its old name it read as a second,
-  competing backend; the new name says what it is. Nothing about it changed but the path,
-  and `parity_reference/README.md` now explains why it is there.
+- **The dashboard is redesigned.** White with one blue accent, and a dark theme in near-black
+  and blue, switched from the top bar. Colour is kept for meaning: status marks, and one hue per
+  series in charts. The sidebar is fixed and lists the archive as a tree, and only the main pane
+  scrolls, under a pinned breadcrumb bar and section menu. Every run page opens with its
+  reproducibility verdict, the check tally and the `mlexp verify` command, and the per-check
+  breakdown opens by itself when a run is not reproducible. Metric names read as they were
+  logged on every tab. The run title edits the run's description, and tags can be added and
+  removed in place. Fonts are bundled into the build, so the dashboard makes no request to a
+  font service.
+
+### Removed
+
+- **The retained Express implementation** (`ml_backend/`, briefly `parity_reference/`). It
+  was not part of the product and nothing at runtime used it; it was kept only so the
+  parity suite could boot it and diff its responses against the Python server. That diff
+  matched with zero structural divergence, and `tests/test_parity.py` keeps the recorded
+  payloads, so the contract the frontend depends on is still pinned. CI no longer installs
+  Node on the Python legs.
+- **The run switcher** above each run, replaced by the sidebar's run list, and the
+  `framer-motion` dependency, which nothing imports any more.
 
 ## [0.1.0] — 2026-08-13
 

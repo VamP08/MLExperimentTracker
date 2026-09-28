@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { FiColumns } from "react-icons/fi";
 import RunComparisonModal from "../../../components/Experiment/RunComparison/RunComparisonModal";
+import { formatWhen, runBadge } from "../../../components/Experiment/experiment";
 import "./Runs.css";
-import { apiFetch } from '../../../lib/api';
+import { apiFetch } from "../../../lib/api";
 
 interface RunsProps {
   experimentId: string;
-  onRunSelect: (runId: string) => void;
+  /** Run names from the experiment payload; the runs endpoint only synthesizes `Run <id>`. */
+  runNames?: Record<string, string>;
 }
 
 /**
@@ -36,11 +40,17 @@ const LEADING_PARAM_COLUMNS = ["learningRate", "batchSize", "epochs"];
 const MIN_COMPARE = 2;
 const MAX_COMPARE = 4;
 
+interface Column {
+  key: string;
+  /** Every value present in the column is a number, so it reads right-aligned. */
+  numeric: boolean;
+}
+
 const deriveColumns = (
   rows: Run[],
   pick: (run: Run) => Record<string, unknown>,
   leading: string[],
-): string[] => {
+): Column[] => {
   const present = new Set<string>();
   rows.forEach((row) => Object.keys(pick(row) || {}).forEach((key) => present.add(key)));
 
@@ -49,7 +59,13 @@ const deriveColumns = (
     .filter((key) => !head.includes(key))
     .sort((a, b) => a.localeCompare(b));
 
-  return [...head, ...tail];
+  return [...head, ...tail].map((key) => ({
+    key,
+    numeric: rows.every((row) => {
+      const value = pick(row)?.[key];
+      return value === undefined || value === null || typeof value === "number";
+    }),
+  }));
 };
 
 /** `learningRate` reads as "Learning Rate"; `loss` stays "Loss". */
@@ -64,20 +80,7 @@ const formatCell = (value: unknown): string => {
   return String(value);
 };
 
-const statusClass = (status: string): string => {
-  switch (status) {
-    case "completed":
-      return "status-completed";
-    case "running":
-      return "status-running";
-    case "failed":
-      return "status-failed";
-    default:
-      return "status-archived";
-  }
-};
-
-const Runs = ({ experimentId, onRunSelect }: RunsProps) => {
+const Runs = ({ experimentId, runNames = {} }: RunsProps) => {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,168 +151,151 @@ const Runs = ({ experimentId, onRunSelect }: RunsProps) => {
   const canCompare =
     selectedRuns.size >= MIN_COMPARE && selectedRuns.size <= MAX_COMPARE;
 
-  if (loading) return <div className="runs-loading">Loading runs...</div>;
-  if (error) return <div className="runs-error">{error}</div>;
-
-  return (
-    <div className="runs-container">
-      <div className="runs-content">
-        <div className="runs-header">
-          <h2 className="runs-title">Experiment Runs</h2>
-          {selectedRuns.size > 0 && (
-            <div className="runs-actions">
-              <span className="runs-selected-count">
-                {selectedRuns.size} run{selectedRuns.size !== 1 ? "s" : ""} selected
-              </span>
-              <button
-                className="runs-clear-button"
-                onClick={() => setSelectedRuns(new Set())}
-              >
-                Clear Selection
-              </button>
-              {canCompare && (
-                <button
-                  className="runs-compare-button"
-                  onClick={() => setComparing(true)}
-                >
-                  Compare Selected Runs
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {runs.length === 0 ? (
-          <p className="runs-empty">
-            This experiment has no runs yet. A run appears here once its directory
-            contains a <code>metadata.json</code>.
+  const renderBody = () => {
+    if (loading) return <div className="state">Loading runs…</div>;
+    if (error) return <div className="state error">{error}</div>;
+    if (runs.length === 0) {
+      return (
+        <div className="state">
+          <h3>No runs yet</h3>
+          <p>
+            A run appears here once its directory contains a <code>metadata.json</code>.
           </p>
-        ) : (
-          <div className="table-container">
-            <table className="runs-table">
-              <thead>
-                <tr className="header-main">
-                  <th className="header-cell header-cell-fixed border-right" rowSpan={2}>
+        </div>
+      );
+    }
+
+    return (
+      <div className="table-wrap">
+        <table className="table exp-runs-table">
+          <thead>
+            <tr className="exp-group-row">
+              <th colSpan={5} aria-hidden="true" />
+              {paramColumns.length > 0 && (
+                <th colSpan={paramColumns.length} className="exp-group" scope="colgroup">
+                  Parameters
+                </th>
+              )}
+              {metricColumns.length > 0 && (
+                <th colSpan={metricColumns.length} className="exp-group" scope="colgroup">
+                  Latest metrics
+                </th>
+              )}
+            </tr>
+            <tr>
+              <th className="exp-check">
+                <input
+                  type="checkbox"
+                  ref={selectAllRef}
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label={allSelected ? "Clear selection" : "Select all runs"}
+                />
+              </th>
+              <th>Run</th>
+              <th>Status</th>
+              <th className="r">Duration</th>
+              <th>Started</th>
+              {paramColumns.map((column, index) => (
+                <th
+                  key={`param-${column.key}`}
+                  className={`${column.numeric ? "r" : ""} ${index === 0 ? "exp-group-start" : ""}`}
+                >
+                  {columnLabel(column.key)}
+                </th>
+              ))}
+              {metricColumns.map((column, index) => (
+                <th
+                  key={`metric-${column.key}`}
+                  className={`${column.numeric ? "r" : ""} ${index === 0 ? "exp-group-start" : ""}`}
+                >
+                  {columnLabel(column.key)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {runs.map((run) => {
+              const badge = runBadge(run.status);
+              const selected = selectedRuns.has(run._id);
+              return (
+                <tr key={run._id} className={selected ? "is-selected" : undefined}>
+                  <td className="exp-check">
                     <input
                       type="checkbox"
-                      ref={selectAllRef}
-                      checked={allSelected}
-                      onChange={toggleSelectAll}
-                      aria-label={allSelected ? "Clear selection" : "Select all runs"}
+                      checked={selected}
+                      onChange={() => toggleRunSelection(run._id)}
+                      aria-label={`Select ${runNames[run._id] ?? run._id}`}
                     />
-                  </th>
-                  <th
-                    className="header-cell header-cell-run border-right-thick"
-                    rowSpan={2}
-                  >
-                    Run
-                  </th>
-                  <th className="header-cell status-group border-right-thick" colSpan={2}>
-                    Status
-                  </th>
-                  {metricColumns.length > 0 && (
-                    <th
-                      className="header-cell metrics-group border-right-thick"
-                      colSpan={metricColumns.length}
-                    >
-                      Metrics
-                    </th>
-                  )}
-                  {paramColumns.length > 0 && (
-                    <th
-                      className="header-cell parameters-group border-right-thick"
-                      colSpan={paramColumns.length}
-                    >
-                      Parameters
-                    </th>
-                  )}
-                </tr>
-
-                <tr className="header-sub">
-                  <th className="header-cell border-right">Status</th>
-                  <th className="header-cell border-right-thick">Duration</th>
-                  {metricColumns.map((column, index) => (
-                    <th
-                      key={`metric-${column}`}
-                      className={`header-cell ${
-                        index === metricColumns.length - 1
-                          ? "border-right-thick"
-                          : "border-right"
-                      }`}
-                    >
-                      {columnLabel(column)}
-                    </th>
-                  ))}
+                  </td>
+                  <td className="exp-run-cell">
+                    <Link to={`/runs/${encodeURIComponent(run._id)}`}>{runNames[run._id] ?? run._id}</Link>
+                    {runNames[run._id] && runNames[run._id] !== run._id && <span className="exp-run-id mono">{run._id}</span>}
+                  </td>
+                  <td>
+                    <span className={`badge ${badge.tone}`}>{badge.label}</span>
+                  </td>
+                  <td className="r num">{run.duration}</td>
+                  <td className="num muted">{formatWhen(run.startTime) ?? "—"}</td>
                   {paramColumns.map((column, index) => (
-                    <th
-                      key={`param-${column}`}
-                      className={`header-cell ${
-                        index === paramColumns.length - 1
-                          ? "border-right-thick"
-                          : "border-right"
-                      }`}
+                    <td
+                      key={`param-${column.key}`}
+                      className={`${column.numeric ? "r num" : ""} ${index === 0 ? "exp-group-start" : ""}`}
                     >
-                      {columnLabel(column)}
-                    </th>
+                      {formatCell(run.parameters?.[column.key])}
+                    </td>
+                  ))}
+                  {metricColumns.map((column, index) => (
+                    <td
+                      key={`metric-${column.key}`}
+                      className={`${column.numeric ? "r num" : ""} ${index === 0 ? "exp-group-start" : ""}`}
+                    >
+                      {formatCell(run.metrics?.[column.key])}
+                    </td>
                   ))}
                 </tr>
-              </thead>
-
-              <tbody>
-                {runs.map((run) => (
-                  <tr key={run._id}>
-                    <td className="cell border-right">
-                      <input
-                        type="checkbox"
-                        checked={selectedRuns.has(run._id)}
-                        onChange={() => toggleRunSelection(run._id)}
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={`Select ${run.name}`}
-                      />
-                    </td>
-                    <td
-                      className="cell cell-run border-right-thick"
-                      onClick={() => onRunSelect(run._id)}
-                    >
-                      {run.name}
-                    </td>
-                    <td className="cell border-right">
-                      <span className={`status-badge ${statusClass(run.status)}`}>
-                        {run.status}
-                      </span>
-                    </td>
-                    <td className="cell border-right-thick">{run.duration}</td>
-                    {metricColumns.map((column, index) => (
-                      <td
-                        key={`metric-${column}`}
-                        className={`cell ${
-                          index === metricColumns.length - 1
-                            ? "border-right-thick"
-                            : "border-right"
-                        }`}
-                      >
-                        {formatCell(run.metrics?.[column])}
-                      </td>
-                    ))}
-                    {paramColumns.map((column, index) => (
-                      <td
-                        key={`param-${column}`}
-                        className={`cell ${
-                          index === paramColumns.length - 1
-                            ? "border-right-thick"
-                            : "border-right"
-                        }`}
-                      >
-                        {formatCell(run.parameters?.[column])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+    );
+  };
+
+  return (
+    <section className="panel" aria-labelledby="exp-runs-title">
+      <div className="panel-head">
+        <h2 id="exp-runs-title">Runs</h2>
+        {!loading && !error && (
+          <span className="sub num">
+            {runs.length} {runs.length === 1 ? "run" : "runs"}
+          </span>
+        )}
+        <span className="spacer" />
+        {selectedRuns.size > 0 && (
+          <>
+            <span className="sub num" aria-live="polite">
+              {selectedRuns.size} selected
+            </span>
+            <button type="button" className="btn btn-ghost" onClick={() => setSelectedRuns(new Set())}>
+              Clear
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!canCompare}
+          title={canCompare ? undefined : `Select ${MIN_COMPARE} to ${MAX_COMPARE} runs to compare`}
+          onClick={() => setComparing(true)}
+        >
+          <FiColumns />
+          Compare selected
+        </button>
+      </div>
+
+      {renderBody()}
 
       {comparing && (
         <RunComparisonModal
@@ -318,7 +304,7 @@ const Runs = ({ experimentId, onRunSelect }: RunsProps) => {
           onClose={() => setComparing(false)}
         />
       )}
-    </div>
+    </section>
   );
 };
 

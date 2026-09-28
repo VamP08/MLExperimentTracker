@@ -1,81 +1,92 @@
-.overview-container {
-  display: flex;
-  gap: 1.5rem;
-  height: 100%;
-  animation: fadeIn var(--transition);
+.exp-overview {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
 }
-
-.left-column {
-  flex: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  min-height: 0; /* Add this to allow proper flex shrinking */
-}
-
-.right-column {
-  flex: 1;
-}
-
-.card {
-  background-color: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.5rem;
-  height: auto;
-  border: 1px solid var(--border);
-  transition: box-shadow var(--transition);
-}
-
-.card:hover {
-  box-shadow: var(--shadow-md);
-}
-
-.card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-top: 0;
-  margin-bottom: 1.25rem;
-  color: var(--foreground);
-  position: relative;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.stats-card {
-  margin-bottom: 1.5rem; /* Remove the margin-bottom */
-  flex: 0 0 auto; 
-  height: auto;
-}
-
-.timeline-card {
-  flex: 1; /* Let it take remaining space */
-  overflow-y: auto;
-  min-height: 200px; /* Give it a minimum height */
-  display: flex;
-  flex-direction: column;
-}
-
-.description-card {
-  height: 100%;
-}
-
-.overview-status {
-  padding: 2rem 1rem;
-  text-align: center;
-  color: var(--card-foreground);
-}
-
-.overview-status-error {
-  color: var(--error);
-}
-
-@media (max-width: 1024px) {
-  .overview-container {
-    flex-direction: column;
+@media (max-width: 900px) {
+  .exp-overview {
+    grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .right-column {
-    flex: none;
-  }
+/* One thin stacked bar: each segment grows by its run count. */
+.exp-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  margin-bottom: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--row);
+}
+.exp-bar-seg {
+  min-width: 3px;
+  background: var(--unk);
+}
+.exp-bar-seg.ok {
+  background: var(--ok);
+}
+.exp-bar-seg.fail {
+  background: var(--fail);
+}
+.exp-bar-seg.running {
+  background: var(--accent);
+}
+
+.exp-state-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exp-state-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  border-bottom: 1px solid var(--row);
+  font-size: 14px;
+}
+.exp-state-list li:last-child {
+  border-bottom: 0;
+}
+.exp-state-list li .num {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.exp-link-btn {
+  font-size: 14px;
+  color: var(--accent-ink);
+}
+.exp-link-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.exp-run-name {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exp-activity {
+  margin: 0;
+  padding: 4px 20px 8px;
+  list-style: none;
+}
+.exp-activity li {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--row);
+  font-size: 14px;
+}
+.exp-activity li:last-child {
+  border-bottom: 0;
+}
+.exp-activity li .num {
+  flex: none;
+  min-width: 150px;
 }

@@ -1,110 +1,44 @@
-.artifacts {
-  padding: 20px;
+.artifacts-nowrap {
+  white-space: nowrap;
 }
 
-.artifacts h3 {
-  margin-bottom: 20px;
-  font-size: 20px;
-  color: #fff;
-}
-
-.artifacts-list {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.artifact-card {
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 8px;
-  overflow: hidden;
-  transition: all 0.2s ease;
-}
-
-.artifact-card:hover {
-  border-color: #4a9eff;
-  box-shadow: 0 2px 8px rgba(74, 158, 255, 0.1);
-}
-
-.artifact-header {
-  padding: 20px;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
+/* Type is a label, not a state, so it stays achromatic. */
+.artifacts-type {
+  display: inline-flex;
   align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 
-.artifact-info h4 {
-  margin: 0 0 10px 0;
-  font-size: 16px;
-  color: #4a9eff;
+.artifacts-toggle {
+  height: 28px;
+  padding: 0 8px;
+  color: var(--text-2);
 }
 
-.artifact-badges {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+.artifacts-meta-row td {
+  height: auto;
+  padding: 0 14px 14px;
+}
+.artifacts-table tbody tr.artifacts-meta-row:hover td {
+  background: none;
 }
 
-.badge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.badge.type {
-  background: #3a4a5a;
-  color: #8ec5fc;
-}
-
-.badge.version {
-  background: #4a3a5a;
-  color: #d4a5ff;
-}
-
-.badge.files {
-  background: #3a5a4a;
-  color: #a5ffc9;
-}
-
-.artifact-date {
-  font-size: 13px;
-  color: #999;
-}
-
-.artifact-metadata {
-  padding: 20px;
-  border-top: 1px solid #3a3a3a;
-  background: #252525;
-}
-
-.artifact-metadata h5 {
-  margin: 0 0 10px 0;
-  font-size: 14px;
-  color: #999;
-}
-
-.artifact-metadata pre {
-  background: #1e1e1e;
-  padding: 15px;
-  border-radius: 4px;
-  overflow-x: auto;
-  font-size: 12px;
-  color: #e0e0e0;
-  font-family: 'Courier New', monospace;
+.artifacts-meta {
   margin: 0;
-}
-
-.artifacts-loading,
-.artifacts-error,
-.artifacts-empty {
-  padding: 40px;
-  text-align: center;
-  color: #999;
-}
-
-.artifacts-error {
-  color: #ff4444;
+  padding: 12px 14px;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
 }

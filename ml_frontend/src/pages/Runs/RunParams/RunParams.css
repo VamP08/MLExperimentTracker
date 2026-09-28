@@ -1,189 +1,32 @@
-.run-params-overview {
-  padding: 20px;
+.rp-filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 280px;
+  min-width: 180px;
 }
-
-.run-params-loading,
-.run-params-error,
-.run-params-empty {
-  padding: 48px;
-  text-align: center;
-  color: var(--card-foreground);
-  font-size: 1rem;
+.rp-filter svg {
+  position: absolute;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+  pointer-events: none;
 }
-
-.run-params-error {
-  color: #ef4444;
-}
-
-.params-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--foreground);
-  margin-bottom: 24px;
-}
-
-.run-params-page {
-  padding: 20px;
-}
-
-.params-header {
-  margin-bottom: 24px;
-}
-
-.params-header h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--foreground);
-  margin-bottom: 8px;
-}
-
-.params-header p {
-  color: var(--card-foreground);
-  font-size: 0.875rem;
-}
-
-.params-table-container {
-  background-color: var(--card);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  overflow: auto; /* Make container scrollable */
-  max-height: 300px; /* Limit height to make it scrollable */
-  border: 1px solid var(--border);
-}
-
-.params-table {
+.rp-filter .input {
   width: 100%;
-  border-collapse: collapse;
+  padding-left: 32px;
 }
 
-.params-table th {
-  text-align: left;
-  padding: 12px 16px;
-  background-color: var(--background);
-  font-weight: 600;
-  color: var(--foreground);
-  font-size: 0.875rem;
-  border-bottom: 1px solid var(--border);
-  position: sticky; /* Keep header visible when scrolling */
-  top: 0;
-  z-index: 1;
+.rp-table th:first-child {
+  width: 34%;
 }
-
-.params-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.875rem;
+.rp-table th:last-child {
+  width: 110px;
 }
-
-.param-name {
-  font-family: monospace;
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.param-value {
-  font-family: monospace;
-  color: var(--primary);
-}
-
-.param-type {
-  color: var(--card-foreground);
-  font-style: italic;
-}
-
-.params-table tr:last-child td {
-  border-bottom: none;
-}
-
-.params-table tr:hover {
-  background-color: var(--background);
-}
-
-/* JSON View Styles */
-.json-view-container {
-  margin-top: 24px;
-  background-color: var(--card);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.json-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background-color: var(--background);
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-}
-
-.json-header h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--foreground);
-  margin: 0;
-}
-
-.expand-icon {
-  display: inline-block;
-  transition: transform 0.2s ease;
-  color: var(--card-foreground);
-  font-size: 0.75rem;
-}
-
-.expand-icon.expanded {
-  transform: rotate(90deg);
-}
-
-.json-content {
-  padding: 16px;
-  background-color: var(--background);
-  font-family: monospace;
-  font-size: 0.875rem;
-  overflow: auto;
-  max-height: 400px;
-}
-
-.json-wrapper {
-  color: var(--foreground);
-}
-
-.json-opening,
-.json-closing {
-  padding: 2px 0;
-}
-
-.json-section {
-  margin-left: 20px;
-}
-
-.json-section-header {
-  cursor: pointer;
-  padding: 2px 0;
-  display: flex;
-  align-items: center;
-}
-
-.section-name {
-  color: var(--info);
-  margin-left: 4px;
-}
-
-.json-section-content {
-  margin-left: 20px;
-}
-
-.json-property {
-  padding: 2px 0;
-}
-
-.json-key {
-  color: var(--primary);
-}
-
-.json-value {
-  color: var(--success);
-  margin-left: 4px;
+/* Long values (lists, nested configs) wrap rather than widening the table. */
+.rp-table td.rp-value {
+  word-break: break-word;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }

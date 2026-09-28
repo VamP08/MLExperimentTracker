@@ -14,23 +14,19 @@
  * demo, with no server behind it, that cannot serve them.
  */
 
-/* Log file download — streamed from disk as an attachment by the real server. */
-.logs-download-button-disabled {
-  opacity: 0.5;
+/* Both downloads are attachments the real server streams from disk. They use
+   aria-disabled rather than disabled, so the title that explains why stays reachable by
+   hover and keyboard; these rules give them the look of a disabled .btn. */
+
+/* Log file download (Logs tab). */
+.logs-download[aria-disabled="true"],
+/* Provenance patch download (Provenance tab, Source panel). */
+.provenance-download[aria-disabled="true"] {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.logs-download-button-disabled:hover {
-  background-color: var(--input);
-}
-
-/* Provenance patch download — served out of the run directory by the real server. */
-.provenance-download-disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.provenance-download-disabled:hover {
-  color: var(--primary);
-  text-decoration: none;
+.logs-download[aria-disabled="true"]:hover,
+.provenance-download[aria-disabled="true"]:hover {
+  background: var(--bg);
 }

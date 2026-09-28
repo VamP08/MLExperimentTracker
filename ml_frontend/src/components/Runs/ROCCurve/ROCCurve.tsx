@@ -68,171 +68,22 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
     fetchROCData();
   }, [fetchROCData]);
 
-  const renderROCCurve = (data: ROCData) => {
-    const width = 500;
-    const height = 500;
-    const padding = 50;
-    
-    const points = data.fpr.map((fpr, i) => ({
-      x: padding + (fpr * (width - 2 * padding)),
-      y: height - padding - (data.tpr[i] * (height - 2 * padding)),
-    }));
-
-    const pathData = points.map((p, i) => 
-      `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
-    ).join(' ');
-
-    // Diagonal reference line (random classifier)
-    const diagonalPath = `M ${padding} ${height - padding} L ${width - padding} ${padding}`;
-
-    return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="roc-svg">
-        {/* Background */}
-        <rect x="0" y="0" width={width} height={height} fill="#0a0a15" />
-        
-        {/* Grid lines */}
-        {[0, 0.2, 0.4, 0.6, 0.8, 1.0].map(val => {
-          const x = padding + val * (width - 2 * padding);
-          const y = height - padding - val * (height - 2 * padding);
-          return (
-            <g key={val}>
-              <line
-                x1={padding}
-                y1={y}
-                x2={width - padding}
-                y2={y}
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="1"
-              />
-              <line
-                x1={x}
-                y1={padding}
-                x2={x}
-                y2={height - padding}
-                stroke="rgba(255,255,255,0.1)"
-                strokeWidth="1"
-              />
-            </g>
-          );
-        })}
-
-        {/* Axes */}
-        <line
-          x1={padding}
-          y1={height - padding}
-          x2={width - padding}
-          y2={height - padding}
-          stroke="#666"
-          strokeWidth="2"
-        />
-        <line
-          x1={padding}
-          y1={padding}
-          x2={padding}
-          y2={height - padding}
-          stroke="#666"
-          strokeWidth="2"
-        />
-
-        {/* Axis labels */}
-        {[0, 0.2, 0.4, 0.6, 0.8, 1.0].map(val => {
-          const x = padding + val * (width - 2 * padding);
-          const y = height - padding - val * (height - 2 * padding);
-          return (
-            <g key={`label-${val}`}>
-              <text
-                x={x}
-                y={height - padding + 25}
-                textAnchor="middle"
-                fill="#aaa"
-                fontSize="12"
-              >
-                {val.toFixed(1)}
-              </text>
-              <text
-                x={padding - 25}
-                y={y + 5}
-                textAnchor="middle"
-                fill="#aaa"
-                fontSize="12"
-              >
-                {val.toFixed(1)}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Diagonal reference line */}
-        <path
-          d={diagonalPath}
-          fill="none"
-          stroke="rgba(255,255,255,0.3)"
-          strokeWidth="2"
-          strokeDasharray="5,5"
-        />
-
-        {/* ROC curve */}
-        <path
-          d={pathData}
-          fill="none"
-          stroke="#3b82f6"
-          strokeWidth="3"
-          opacity="0.9"
-        />
-
-        {/* Fill area under curve */}
-        <path
-          d={`${pathData} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`}
-          fill="rgba(59, 130, 246, 0.1)"
-        />
-
-        {/* Points on curve */}
-        {points.filter((_, i) => i % Math.ceil(points.length / 20) === 0).map((point, i) => (
-          <circle
-            key={i}
-            cx={point.x}
-            cy={point.y}
-            r="4"
-            fill="#3b82f6"
-            stroke="#fff"
-            strokeWidth="2"
-          />
-        ))}
-
-        {/* Title */}
-        <text x={width / 2} y={30} textAnchor="middle" fill="#fff" fontSize="18" fontWeight="bold">
-          ROC Curve
-        </text>
-
-        {/* AUC label */}
-        <text x={width - padding - 20} y={height - padding - 20} textAnchor="end" fill="#10b981" fontSize="16" fontWeight="bold">
-          AUC = {data.auc.toFixed(3)}
-        </text>
-
-        {/* Axis titles */}
-        <text x={width / 2} y={height - 10} textAnchor="middle" fill="#aaa" fontSize="14">
-          False Positive Rate
-        </text>
-        <text
-          x={20}
-          y={height / 2}
-          textAnchor="middle"
-          fill="#aaa"
-          fontSize="14"
-          transform={`rotate(-90 20 ${height / 2})`}
-        >
-          True Positive Rate
-        </text>
-      </svg>
-    );
-  };
+  const shell = (body: React.ReactNode, sub?: React.ReactNode) => (
+    <section className="panel" aria-labelledby="roc-head">
+      <div className="panel-head">
+        <h2 id="roc-head">ROC curve</h2>
+        {sub}
+      </div>
+      {body}
+    </section>
+  );
 
   if (loading) {
-    return <div className="roc-curve loading">Loading ROC curve data...</div>;
+    return shell(<div className="state">Loading ROC curve data…</div>);
   }
 
   if (error) {
-    return <div className="roc-curve error">Error: {error}</div>;
+    return shell(<div className="state error">Could not load ROC curves: {error}</div>);
   }
 
   // Nothing to draw is not an error and not worth a card of its own; the
@@ -241,109 +92,103 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
     return null;
   }
 
-  const currentCurve = curves[selectedCurve];
+  const S = 400;
+  const PAD = { l: 44, r: 12, t: 12, b: 40 };
+  const sx = (v: number) => PAD.l + v * (S - PAD.l - PAD.r);
+  const sy = (v: number) => S - PAD.b - v * (S - PAD.t - PAD.b);
+  const grid = [0, 0.2, 0.4, 0.6, 0.8, 1];
+  const label = (curve: ROCData, idx: number) => curve.className || `Class ${idx + 1}`;
 
-  return (
-    <div className="roc-curve">
-      <div className="roc-header">
-        <h3>ROC Curve Analysis</h3>
-        
-        {curves.length > 1 && (
-          <div className="curve-selector">
-            <label>Select Class:</label>
-            <select value={selectedCurve} onChange={(e) => setSelectedCurve(parseInt(e.target.value))}>
-              {curves.map((curve, idx) => (
-                <option key={idx} value={idx}>
-                  {curve.className || `Class ${idx + 1}`} (AUC: {curve.auc.toFixed(3)})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
+  // The threshold that maximises TPR - FPR (Youden's J).
+  const optimalThreshold = (curve: ROCData) => {
+    let maxDiff = -Infinity;
+    let optimalIdx = 0;
+    curve.tpr.forEach((tpr, i) => {
+      const diff = tpr - curve.fpr[i];
+      if (diff > maxDiff) {
+        maxDiff = diff;
+        optimalIdx = i;
+      }
+    });
+    const threshold = curve.thresholds[optimalIdx];
+    return typeof threshold === 'number' ? threshold.toFixed(3) : '—';
+  };
 
-      <div className="roc-chart">
-        {renderROCCurve(currentCurve)}
-      </div>
+  return shell(
+    <div className="panel-body roc-layout">
+      <svg viewBox={`0 0 ${S} ${S}`} className="roc-svg" role="img" aria-label={`ROC curves: ${curves.map((c, i) => `${label(c, i)} AUC ${c.auc.toFixed(3)}`).join(', ')}`}>
+        {grid.map((v) => (
+          <g key={v}>
+            <line className="roc-grid" x1={sx(0)} x2={sx(1)} y1={sy(v)} y2={sy(v)} />
+            <line className="roc-grid" x1={sx(v)} x2={sx(v)} y1={sy(0)} y2={sy(1)} />
+            <text className="roc-tick" x={sx(v)} y={sy(0) + 16} textAnchor="middle">
+              {v.toFixed(1)}
+            </text>
+            <text className="roc-tick" x={sx(0) - 8} y={sy(v) + 4} textAnchor="end">
+              {v.toFixed(1)}
+            </text>
+          </g>
+        ))}
+        <line className="roc-chance" x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} />
+        {/* The selected class is drawn last so it sits above the others. */}
+        {curves
+          .map((curve, idx) => ({ curve, idx }))
+          .sort((a, b) => Number(a.idx === selectedCurve) - Number(b.idx === selectedCurve))
+          .map(({ curve, idx }) => (
+          <path
+            key={idx}
+            className={`roc-line roc-s${(idx % 5) + 1}${idx === selectedCurve ? ' is-selected' : ''}`}
+            d={curve.fpr.map((f, i) => `${i ? 'L' : 'M'}${sx(f).toFixed(1)},${sy(curve.tpr[i] ?? 0).toFixed(1)}`).join('')}
+          />
+        ))}
+        <text className="roc-axis" x={(sx(0) + sx(1)) / 2} y={S - 6} textAnchor="middle">
+          False positive rate
+        </text>
+        <text className="roc-axis" x={12} y={(sy(0) + sy(1)) / 2} textAnchor="middle" transform={`rotate(-90 12 ${(sy(0) + sy(1)) / 2})`}>
+          True positive rate
+        </text>
+      </svg>
 
-      <div className="roc-metrics">
-        <div className="metric-card">
-          <div className="metric-label">AUC Score</div>
-          <div className="metric-value auc">{currentCurve.auc.toFixed(4)}</div>
-          <div className="metric-interpretation">
-            {currentCurve.auc >= 0.9 ? 'Excellent' :
-             currentCurve.auc >= 0.8 ? 'Good' :
-             currentCurve.auc >= 0.7 ? 'Fair' :
-             currentCurve.auc >= 0.6 ? 'Poor' : 'Very Poor'}
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Total Points</div>
-          <div className="metric-value">{currentCurve.fpr.length}</div>
-          <div className="metric-interpretation">Thresholds evaluated</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-label">Optimal Threshold</div>
-          <div className="metric-value">
-            {(() => {
-              // Find threshold that maximizes (TPR - FPR)
-              let maxDiff = -Infinity;
-              let optimalIdx = 0;
-              currentCurve.tpr.forEach((tpr, i) => {
-                const diff = tpr - currentCurve.fpr[i];
-                if (diff > maxDiff) {
-                  maxDiff = diff;
-                  optimalIdx = i;
-                }
-              });
-              const threshold = currentCurve.thresholds[optimalIdx];
-              return typeof threshold === 'number' ? threshold.toFixed(3) : '—';
-            })()}
-          </div>
-          <div className="metric-interpretation">Maximizes TPR - FPR</div>
-        </div>
-      </div>
-
-      {curves.length > 1 && (
-        <div className="all-curves-summary">
-          <h4>All Classes Summary</h4>
-          <table className="curves-table">
-            <thead>
-              <tr>
-                <th>Class</th>
-                <th>AUC Score</th>
-                <th>Quality</th>
+      <div className="table-wrap roc-legend">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Class</th>
+              <th className="r">AUC</th>
+              <th className="r">Optimal threshold</th>
+              <th className="r">Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            {curves.map((curve, idx) => (
+              <tr key={idx} className={idx === selectedCurve ? 'is-selected' : undefined}>
+                <td>
+                  <button
+                    type="button"
+                    className={`roc-key roc-s${(idx % 5) + 1}`}
+                    aria-pressed={idx === selectedCurve}
+                    onClick={() => setSelectedCurve(idx)}
+                  >
+                    <i className="roc-swatch" aria-hidden="true" />
+                    {label(curve, idx)}
+                  </button>
+                </td>
+                <td className="r mono">{curve.auc.toFixed(4)}</td>
+                <td className="r mono">{optimalThreshold(curve)}</td>
+                <td className="r mono">{curve.fpr.length}</td>
               </tr>
-            </thead>
-            <tbody>
-              {curves.map((curve, idx) => (
-                <tr 
-                  key={idx} 
-                  className={idx === selectedCurve ? 'selected' : ''}
-                  onClick={() => setSelectedCurve(idx)}
-                >
-                  <td>{curve.className || `Class ${idx + 1}`}</td>
-                  <td className="auc-value">{curve.auc.toFixed(4)}</td>
-                  <td className={`quality ${
-                    curve.auc >= 0.9 ? 'excellent' :
-                    curve.auc >= 0.8 ? 'good' :
-                    curve.auc >= 0.7 ? 'fair' :
-                    curve.auc >= 0.6 ? 'poor' : 'very-poor'
-                  }`}>
-                    {curve.auc >= 0.9 ? 'Excellent' :
-                     curve.auc >= 0.8 ? 'Good' :
-                     curve.auc >= 0.7 ? 'Fair' :
-                     curve.auc >= 0.6 ? 'Poor' : 'Very Poor'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+            ))}
+          </tbody>
+        </table>
+        <p className="roc-note">
+          Dashed diagonal: a random classifier. Optimal threshold maximises TPR − FPR.
+          {curves.length > 1 && ' Select a class to bring its curve forward.'}
+        </p>
+      </div>
+    </div>,
+    <span className="sub num">
+      {curves.length} {curves.length === 1 ? 'class' : 'classes'}
+    </span>,
   );
 };
 

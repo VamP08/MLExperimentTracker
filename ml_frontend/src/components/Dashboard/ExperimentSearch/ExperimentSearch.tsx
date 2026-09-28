@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { FiArrowDown, FiArrowUp, FiCheck, FiSearch, FiX } from 'react-icons/fi';
+import { toTimestamp } from '../format';
 import './ExperimentSearch.css';
 
 /**
@@ -10,7 +12,7 @@ export interface FilterableExperiment {
   name: string;
   description?: string;
   tags: string[];
-  createdAt?: string;
+  createdAt?: string | null;
   stats?: { totalRuns?: number };
 }
 
@@ -26,12 +28,6 @@ type SortOrder = 'asc' | 'desc';
 /** Tags arrive from disk and are only as well-formed as whoever wrote metadata.json. */
 const cleanTags = (tags: unknown): string[] =>
   Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string' && t !== '') : [];
-
-const timestamp = (value: string | undefined): number => {
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
-};
 
 function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilterChange }: Props<T>) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,7 +69,7 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
           comparison = a.name.localeCompare(b.name);
           break;
         case 'date':
-          comparison = timestamp(a.createdAt) - timestamp(b.createdAt);
+          comparison = toTimestamp(a.createdAt) - toTimestamp(b.createdAt);
           break;
         case 'runs':
           comparison = (a.stats?.totalRuns ?? 0) - (b.stats?.totalRuns ?? 0);
@@ -104,37 +100,38 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
   const isDefault = !isFiltered && sortBy === 'date' && sortOrder === 'desc';
 
   return (
-    <section className="experiment-search" role="search" aria-label="Search and filter experiments">
-      <div className="experiment-search-bar">
-        <input
-          id="experiment-search-input"
-          type="search"
-          placeholder="Search experiments by name, description, or tag"
-          aria-label="Search experiments by name, description, or tag"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="experiment-search-input"
-        />
-        {searchTerm && (
-          <button
-            type="button"
-            className="experiment-search-clear"
-            aria-label="Clear the search term"
-            onClick={() => setSearchTerm('')}
-          >
-            ✕
-          </button>
-        )}
-      </div>
+    <section className="exp-search" role="search" aria-label="Search and filter experiments">
+      <div className="exp-search-row">
+        <div className="exp-search-field">
+          <FiSearch className="exp-search-icon" aria-hidden="true" />
+          <input
+            id="experiment-search-input"
+            type="search"
+            className="input exp-search-input"
+            placeholder="Search by name, description or tag"
+            aria-label="Search experiments by name, description, or tag"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              className="btn btn-icon btn-ghost exp-search-clear"
+              aria-label="Clear the search term"
+              onClick={() => setSearchTerm('')}
+            >
+              <FiX />
+            </button>
+          )}
+        </div>
 
-      <div className="experiment-search-controls">
-        <div className="experiment-search-sort">
-          <label className="experiment-search-label" htmlFor="experiment-search-sort-key">
+        <div className="exp-search-sort">
+          <label className="muted" htmlFor="experiment-search-sort-key">
             Sort by
           </label>
           <select
             id="experiment-search-sort-key"
-            className="experiment-search-select"
+            className="select"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
           >
@@ -144,41 +141,41 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
           </select>
           <button
             type="button"
-            className="experiment-search-order"
+            className="btn btn-icon"
             onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
             aria-label={
               sortOrder === 'asc' ? 'Sorted ascending, switch to descending' : 'Sorted descending, switch to ascending'
             }
+            title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
           >
-            {sortOrder === 'asc' ? '↑' : '↓'}
+            {sortOrder === 'asc' ? <FiArrowUp /> : <FiArrowDown />}
           </button>
+          {!isDefault && (
+            <button type="button" className="btn btn-ghost" onClick={clearFilters}>
+              Reset
+            </button>
+          )}
         </div>
-
-        {!isDefault && (
-          <button type="button" className="experiment-search-reset" onClick={clearFilters}>
-            Reset
-          </button>
-        )}
       </div>
 
       {allTags.length > 0 && (
-        <div className="experiment-search-tags">
-          <span className="experiment-search-label" id="experiment-search-tags-label">
-            Filter by tag
+        <div className="exp-search-tags">
+          <span className="muted" id="experiment-search-tags-label">
+            Tags
           </span>
-          <div className="experiment-search-tag-list" role="group" aria-labelledby="experiment-search-tags-label">
+          <div className="exp-search-tag-list" role="group" aria-labelledby="experiment-search-tags-label">
             {allTags.map((tag) => {
               const active = selectedTags.includes(tag);
               return (
                 <button
                   type="button"
                   key={tag}
-                  className={`experiment-search-tag ${active ? 'active' : ''}`}
+                  className="exp-search-tag"
                   aria-pressed={active}
                   onClick={() => toggleTag(tag)}
                 >
+                  {active && <FiCheck aria-hidden="true" />}
                   {tag}
-                  {active && <span className="experiment-search-tag-check" aria-hidden="true">✓</span>}
                 </button>
               );
             })}
@@ -187,7 +184,7 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
       )}
 
       {isFiltered && (
-        <p className="experiment-search-summary" role="status" aria-live="polite">
+        <p className="exp-search-summary muted num" role="status" aria-live="polite">
           {filtered.length} of {experiments.length} experiment{experiments.length !== 1 ? 's' : ''}
           {searchTerm && ` matching “${searchTerm}”`}
           {selectedTags.length > 0 && ` tagged ${selectedTags.join(', ')}`}

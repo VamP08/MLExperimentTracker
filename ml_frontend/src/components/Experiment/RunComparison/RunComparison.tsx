@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { FiCheck } from 'react-icons/fi';
 import { groupFlatMetricsByName, type MetricGroup } from '../../../lib/metrics';
+import { formatWhen, runBadge } from '../experiment';
 import './RunComparison.css';
 import { apiFetch } from '../../../lib/api';
 
@@ -36,12 +38,6 @@ interface Props {
 }
 
 const MAX_SELECTED = 4;
-
-const formatDate = (value: string | null): string => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
-};
 
 const formatParameter = (value: unknown): string => {
   if (value === undefined || value === null) return '—';
@@ -165,38 +161,38 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
         .map((run) => formatParameter(run.parameters[paramName])),
     ).size > 1;
 
+
   if (loading) {
-    return <div className="runcomparison-placeholder">Loading runs...</div>;
+    return <div className="state">Loading runs…</div>;
   }
 
   if (error) {
-    return (
-      <div className="runcomparison-placeholder runcomparison-error">Error: {error}</div>
-    );
+    return <div className="state error">Could not load the runs: {error}</div>;
   }
 
   if (runs.length === 0) {
     return (
-      <div className="runcomparison-placeholder">No runs available for comparison</div>
+      <div className="state">
+        <h3>Nothing to compare</h3>
+        <p>This experiment has no runs yet.</p>
+      </div>
     );
   }
 
   const runHeaders = selectedRunsData.map((run) => (
-    <th key={run._id} className="runcomparison-th">
-      <span className="runcomparison-run-title">{run.name}</span>
+    <th key={run._id} scope="col">
+      {run.name}
     </th>
   ));
 
   return (
-    <div className="runcomparison">
-      <div className="runcomparison-heading">
-        <h3 className="runcomparison-title">Compare Runs</h3>
-        <p className="runcomparison-subtitle">
-          Select up to {MAX_SELECTED} runs to compare (selected: {selectedRuns.length})
-        </p>
-      </div>
+    <div className="cmp">
+      <p className="cmp-hint muted">
+        Select up to {MAX_SELECTED} runs to compare{' '}
+        <span className="num">({selectedRuns.length} selected)</span>
+      </p>
 
-      <div className="runcomparison-selector">
+      <div className="cmp-picker" role="group" aria-label="Runs to compare">
         {runs.map((run) => {
           const isSelected = selectedRuns.includes(run._id);
           return (
@@ -204,16 +200,16 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
               key={run._id}
               type="button"
               aria-pressed={isSelected}
-              className={`runcomparison-run-item${
-                isSelected ? ' runcomparison-run-item-selected' : ''
-              }`}
+              className="cmp-pick"
               onClick={() => toggleRunSelection(run._id)}
             >
-              <span className="runcomparison-run-check">{isSelected ? '✓' : ''}</span>
-              <span className="runcomparison-run-info">
-                <span className="runcomparison-run-name">{run.name}</span>
-                <span className="runcomparison-run-meta">
-                  {formatDate(run.startTime)} • {run.duration}
+              <span className="cmp-box" aria-hidden="true">
+                {isSelected && <FiCheck />}
+              </span>
+              <span className="cmp-pick-text">
+                <span className="cmp-pick-name">{run.name}</span>
+                <span className="cmp-pick-meta num">
+                  {formatWhen(run.startTime) ?? '—'} · {run.duration}
                 </span>
               </span>
             </button>
@@ -222,24 +218,20 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
       </div>
 
       {selectedRunsData.length === 0 ? (
-        <p className="runcomparison-placeholder">
-          Select at least one run above to compare.
-        </p>
+        <div className="state">Select at least one run above to compare.</div>
       ) : (
         <>
-          <div className="runcomparison-section">
-            <h4 className="runcomparison-section-title">Metrics</h4>
+          <section className="cmp-section" aria-labelledby="cmp-metrics">
+            <h3 id="cmp-metrics">Metrics</h3>
             {allMetrics.length === 0 ? (
-              <p className="runcomparison-note">
-                None of the selected runs recorded summary metrics.
-              </p>
+              <p className="cmp-note">None of the selected runs recorded summary metrics.</p>
             ) : (
               <>
-                <div className="runcomparison-table-wrap">
-                  <table className="runcomparison-table">
+                <div className="table-wrap cmp-table">
+                  <table className="table">
                     <thead>
                       <tr>
-                        <th className="runcomparison-th">Metric</th>
+                        <th scope="col">Metric</th>
                         {runHeaders}
                       </tr>
                     </thead>
@@ -248,21 +240,19 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
                         const spread = getMetricSpread(metricName);
                         return (
                           <tr key={metricName}>
-                            <td className="runcomparison-row-label">{metricName}</td>
+                            <th scope="row">{metricName}</th>
                             {selectedRunsData.map((run) => {
                               const value = run.metrics[metricName]?.latest;
                               const extreme =
                                 spread && value === spread.max
-                                  ? ' runcomparison-metric-high'
+                                  ? 'max'
                                   : spread && value === spread.min
-                                    ? ' runcomparison-metric-low'
-                                    : '';
+                                    ? 'min'
+                                    : null;
                               return (
-                                <td
-                                  key={run._id}
-                                  className={`runcomparison-metric-value${extreme}`}
-                                >
+                                <td key={run._id} className={`num${extreme ? ' cmp-extreme' : ''}`}>
                                   {value !== undefined ? value.toFixed(4) : '—'}
+                                  {extreme && <span className="cmp-mark">{extreme}</span>}
                                 </td>
                               );
                             })}
@@ -272,26 +262,24 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
                     </tbody>
                   </table>
                 </div>
-                <p className="runcomparison-note">
-                  Highest and lowest values are highlighted. Which end is better depends
-                  on the metric, and the run format does not record that.
+                <p className="cmp-note">
+                  Highest and lowest values are marked. Which end is better depends on the
+                  metric, and the run format does not record that.
                 </p>
               </>
             )}
-          </div>
+          </section>
 
-          <div className="runcomparison-section">
-            <h4 className="runcomparison-section-title">Parameters</h4>
+          <section className="cmp-section" aria-labelledby="cmp-params">
+            <h3 id="cmp-params">Parameters</h3>
             {allParams.length === 0 ? (
-              <p className="runcomparison-note">
-                None of the selected runs recorded top-level parameters.
-              </p>
+              <p className="cmp-note">None of the selected runs recorded top-level parameters.</p>
             ) : (
-              <div className="runcomparison-table-wrap">
-                <table className="runcomparison-table">
+              <div className="table-wrap cmp-table">
+                <table className="table">
                   <thead>
                     <tr>
-                      <th className="runcomparison-th">Parameter</th>
+                      <th scope="col">Parameter</th>
                       {runHeaders}
                     </tr>
                   </thead>
@@ -299,23 +287,13 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
                     {allParams.map((paramName) => {
                       const differs = getParameterDiff(paramName);
                       return (
-                        <tr
-                          key={paramName}
-                          className={differs ? 'runcomparison-row-differs' : undefined}
-                        >
-                          <td className="runcomparison-row-label">
+                        <tr key={paramName} className={differs ? 'cmp-differs' : undefined}>
+                          <th scope="row">
                             {paramName}
-                            {differs && (
-                              <span
-                                className="runcomparison-diff-dot"
-                                title="Values differ between the selected runs"
-                              >
-                                •
-                              </span>
-                            )}
-                          </td>
+                            {differs && <span className="cmp-mark">differs</span>}
+                          </th>
                           {selectedRunsData.map((run) => (
-                            <td key={run._id} className="runcomparison-param-value">
+                            <td key={run._id} className="num">
                               {formatParameter(run.parameters[paramName])}
                             </td>
                           ))}
@@ -326,41 +304,50 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
                 </table>
               </div>
             )}
-          </div>
+          </section>
 
-          <div className="runcomparison-section">
-            <h4 className="runcomparison-section-title">Run metadata</h4>
-            <div className="runcomparison-table-wrap">
-              <table className="runcomparison-table">
+          <section className="cmp-section" aria-labelledby="cmp-meta">
+            <h3 id="cmp-meta">Run metadata</h3>
+            <div className="table-wrap cmp-table">
+              <table className="table">
                 <thead>
                   <tr>
-                    <th className="runcomparison-th">Property</th>
+                    <th scope="col">Property</th>
                     {runHeaders}
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="runcomparison-row-label">Status</td>
+                    <th scope="row">Status</th>
+                    {selectedRunsData.map((run) => {
+                      const badge = runBadge(run.status);
+                      return (
+                        <td key={run._id}>
+                          <span className={`badge ${badge.tone}`}>{badge.label}</span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <th scope="row">Started</th>
                     {selectedRunsData.map((run) => (
-                      <td key={run._id}>{run.status}</td>
+                      <td key={run._id} className="num">
+                        {formatWhen(run.startTime) ?? '—'}
+                      </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="runcomparison-row-label">Started</td>
+                    <th scope="row">Duration</th>
                     {selectedRunsData.map((run) => (
-                      <td key={run._id}>{formatDate(run.startTime)}</td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="runcomparison-row-label">Duration</td>
-                    {selectedRunsData.map((run) => (
-                      <td key={run._id}>{run.duration}</td>
+                      <td key={run._id} className="num">
+                        {run.duration}
+                      </td>
                     ))}
                   </tr>
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         </>
       )}
     </div>

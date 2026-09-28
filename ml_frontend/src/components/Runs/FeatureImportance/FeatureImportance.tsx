@@ -78,12 +78,24 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
   const maxImportance = Math.max(...features.map(f => f.importance));
   const totalImportance = features.reduce((sum, f) => sum + f.importance, 0);
 
+  const shell = (body: React.ReactNode, sub?: React.ReactNode, controls?: React.ReactNode) => (
+    <section className="panel" aria-labelledby="fi-head">
+      <div className="panel-head">
+        <h2 id="fi-head">Feature importance</h2>
+        {sub}
+        <span className="spacer" />
+        {controls}
+      </div>
+      {body}
+    </section>
+  );
+
   if (loading) {
-    return <div className="feature-importance loading">Loading feature importance data...</div>;
+    return shell(<div className="state">Loading feature importance data…</div>);
   }
 
   if (error) {
-    return <div className="feature-importance error">Error: {error}</div>;
+    return shell(<div className="state error">Could not load feature importances: {error}</div>);
   }
 
   // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
@@ -91,149 +103,82 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
     return null;
   }
 
-  return (
-    <div className="feature-importance">
-      <div className="fi-header">
-        <h3>Feature Importance Analysis</h3>
-        
-        <div className="fi-controls">
-          <div className="control-group">
-            <label>Sort by:</label>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'importance' | 'name')}>
-              <option value="importance">Importance (high to low)</option>
-              <option value="name">Name (alphabetical)</option>
-            </select>
-          </div>
-          
-          <div className="control-group">
-            <label>Show top:</label>
-            <select value={showTop} onChange={(e) => setShowTop(parseInt(e.target.value))}>
-              <option value="10">10 features</option>
-              <option value="20">20 features</option>
-              <option value="50">50 features</option>
-              <option value={features.length}>All {features.length} features</option>
-            </select>
-          </div>
-        </div>
-      </div>
+  const hasStd = features.some((f) => f.std !== undefined);
+  const share = (value: number) => (value / totalImportance) * 100;
+  const topFive = share(sortedFeatures.slice(0, 5).reduce((sum, f) => sum + f.importance, 0));
 
-      <div className="fi-summary">
-        <div className="summary-stat">
-          <span className="stat-label">Total Features:</span>
-          <span className="stat-value">{features.length}</span>
-        </div>
-        <div className="summary-stat">
-          <span className="stat-label">Showing:</span>
-          <span className="stat-value">{displayedFeatures.length}</span>
-        </div>
-        <div className="summary-stat">
-          <span className="stat-label">Top 5 Coverage:</span>
-          <span className="stat-value">
-            {((sortedFeatures.slice(0, 5).reduce((sum, f) => sum + f.importance, 0) / totalImportance) * 100).toFixed(1)}%
-          </span>
-        </div>
-      </div>
-
-      <div className="fi-chart">
-        <div className="chart-bars">
-          {displayedFeatures.map((feature, idx) => {
-            const percentage = (feature.importance / maxImportance) * 100;
-            const contribution = (feature.importance / totalImportance) * 100;
-            
-            return (
-              <div key={feature.name} className="bar-item">
-                <div className="bar-label">
-                  <span className="feature-rank">#{idx + 1}</span>
-                  <span className="feature-name" title={feature.name}>{feature.name}</span>
-                </div>
-                <div className="bar-container">
-                  <div 
-                    className="bar-fill"
-                    style={{ width: `${percentage}%` }}
-                  >
-                    <span className="bar-value">
-                      {feature.importance.toFixed(4)}
-                      {feature.std && ` ± ${feature.std.toFixed(4)}`}
-                    </span>
-                  </div>
-                  <span className="bar-percentage">{contribution.toFixed(1)}%</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="fi-table-section">
-        <h4>Detailed Statistics</h4>
-        <div className="table-wrapper">
-          <table className="fi-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Feature Name</th>
-                <th>Importance</th>
-                {features.some(f => f.std !== undefined) && <th>Std Dev</th>}
-                <th>Contribution (%)</th>
-                <th>Cumulative (%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedFeatures.map((feature, idx) => {
-                const contribution = (feature.importance / totalImportance) * 100;
-                const cumulative = (sortedFeatures
-                  .slice(0, idx + 1)
-                  .reduce((sum, f) => sum + f.importance, 0) / totalImportance) * 100;
-                
-                return (
-                  <tr key={feature.name}>
-                    <td className="rank-cell">#{idx + 1}</td>
-                    <td className="name-cell">{feature.name}</td>
-                    <td className="importance-cell">{feature.importance.toFixed(4)}</td>
-                    {features.some(f => f.std !== undefined) && (
-                      <td className="std-cell">{feature.std ? feature.std.toFixed(4) : 'N/A'}</td>
-                    )}
-                    <td className="contribution-cell">{contribution.toFixed(2)}%</td>
-                    <td className="cumulative-cell">
-                      <div className="cumulative-bar-wrapper">
-                        <div className="cumulative-bar" style={{ width: `${cumulative}%` }} />
-                        <span className="cumulative-text">{cumulative.toFixed(1)}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {sortBy === 'importance' && displayedFeatures.length >= 10 && (
-        <div className="fi-insights">
-          <h4>Insights</h4>
-          <ul>
-            <li>
-              Top feature <strong>{sortedFeatures[0].name}</strong> contributes{' '}
-              <strong>{((sortedFeatures[0].importance / totalImportance) * 100).toFixed(1)}%</strong> of total importance
+  return shell(
+    <>
+      <div className="panel-body">
+        <ol className="fi-bars">
+          {displayedFeatures.map((feature) => (
+            <li key={feature.name} className="fi-bar">
+              <span className="fi-name" title={feature.name}>
+                {feature.name}
+              </span>
+              <span className="fi-track" aria-hidden="true">
+                <span className="fi-fill" style={{ width: `${maxImportance > 0 ? (feature.importance / maxImportance) * 100 : 0}%` }} />
+              </span>
+              <span className="fi-value mono">
+                {feature.importance.toFixed(4)}
+                {typeof feature.std === 'number' && <span className="muted"> ± {feature.std.toFixed(4)}</span>}
+              </span>
             </li>
-            <li>
-              Top 5 features account for{' '}
-              <strong>
-                {((sortedFeatures.slice(0, 5).reduce((sum, f) => sum + f.importance, 0) / totalImportance) * 100).toFixed(1)}%
-              </strong>{' '}
-              of total importance
-            </li>
-            <li>
-              Top 10 features account for{' '}
-              <strong>
-                {((sortedFeatures.slice(0, 10).reduce((sum, f) => sum + f.importance, 0) / totalImportance) * 100).toFixed(1)}%
-              </strong>{' '}
-              of total importance
-            </li>
-          </ul>
-        </div>
-      )}
-    </div>
+          ))}
+        </ol>
+      </div>
+
+      <div className="table-wrap fi-table">
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="r">Rank</th>
+              <th>Feature</th>
+              <th className="r">Importance</th>
+              {hasStd && <th className="r">Std dev</th>}
+              <th className="r">Share</th>
+              <th className="r">Cumulative</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedFeatures.map((feature, idx) => {
+              const cumulative = share(sortedFeatures.slice(0, idx + 1).reduce((sum, f) => sum + f.importance, 0));
+              return (
+                <tr key={feature.name}>
+                  <td className="r mono muted">{idx + 1}</td>
+                  <td>{feature.name}</td>
+                  <td className="r mono">{feature.importance.toFixed(4)}</td>
+                  {hasStd && <td className="r mono">{typeof feature.std === 'number' ? feature.std.toFixed(4) : '—'}</td>}
+                  <td className="r mono">{share(feature.importance).toFixed(2)}%</td>
+                  <td className="r mono">{cumulative.toFixed(1)}%</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>,
+    <span className="sub num">
+      {displayedFeatures.length} of {features.length} · top 5 hold {topFive.toFixed(1)}%
+    </span>,
+    <>
+      <label>
+        <span className="sr-only">Sort by</span>
+        <select className="select" value={sortBy} onChange={(e) => setSortBy(e.target.value as 'importance' | 'name')}>
+          <option value="importance">Importance, high to low</option>
+          <option value="name">Name, A to Z</option>
+        </select>
+      </label>
+      <label>
+        <span className="sr-only">Show</span>
+        <select className="select" value={showTop} onChange={(e) => setShowTop(parseInt(e.target.value))}>
+          <option value="10">Top 10</option>
+          <option value="20">Top 20</option>
+          <option value="50">Top 50</option>
+          <option value={features.length}>All {features.length}</option>
+        </select>
+      </label>
+    </>,
   );
 };
 

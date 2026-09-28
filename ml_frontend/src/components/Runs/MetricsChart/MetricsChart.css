@@ -1,148 +1,96 @@
-.metrics-chart {
-  padding: 20px;
-  background: #1e1e1e;
-  border-radius: 8px;
+/* Metric selector and the facts row above the large chart. */
+.mc-pick .select {
+  max-width: min(320px, 70vw);
 }
-
-.metric-selector {
+.mc-facts {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0 0 16px;
 }
-
-.metric-selector label {
-  color: #999;
-  font-size: 14px;
-}
-
-.metric-selector select {
-  padding: 8px 12px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 6px;
-  color: #e0e0e0;
-  font-size: 14px;
-  cursor: pointer;
-  min-width: 250px;
-}
-
-.metric-selector select:hover {
-  border-color: #4a9eff;
-}
-
-.chart-container {
-  background: #252525;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
-}
-
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.chart-header h4 {
-  margin: 0;
-  color: #4a9eff;
-  font-size: 18px;
-}
-
-.chart-stats {
-  display: flex;
-  gap: 20px;
+.mc-facts dt {
   font-size: 13px;
-  color: #999;
+  color: var(--text-2);
+}
+.mc-facts dd {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--text);
 }
 
-.chart-stats span {
-  background: #2a2a2a;
-  padding: 4px 10px;
-  border-radius: 4px;
+/* LineChart: shared by the metric time series and the gradient view. */
+.lc {
+  min-width: 0;
 }
-
-.metrics-svg {
-  width: 100%;
-  height: auto;
-  background: #1a1a1a;
-  border-radius: 4px;
+.lc svg {
+  display: block;
+  max-width: 100%;
+  touch-action: pan-y;
 }
-
-.metric-line {
-  transition: stroke-width 0.2s;
-}
-
-.metric-line:hover {
-  stroke-width: 3;
-}
-
-.data-point {
-  cursor: pointer;
-  transition: r 0.2s;
-}
-
-.data-point:hover {
-  r: 6;
-  fill: #6bb5ff;
-}
-
-.metric-details {
-  background: #252525;
-  border-radius: 8px;
-  padding: 20px;
-}
-
-.metric-details h5 {
-  margin: 0 0 15px 0;
-  color: #e0e0e0;
-  font-size: 16px;
-}
-
-.details-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 15px;
-}
-
-.detail-item {
+.lc-readout {
   display: flex;
-  justify-content: space-between;
-  padding: 10px 15px;
-  background: #2a2a2a;
-  border-radius: 6px;
-}
-
-.detail-item .label {
-  color: #999;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+  min-height: 22px;
+  margin-bottom: 8px;
   font-size: 13px;
+  color: var(--text-2);
 }
-
-.detail-item .value {
-  color: #e0e0e0;
+.lc-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-2);
+}
+.lc-item b {
   font-weight: 500;
+  color: var(--text);
 }
-
-.detail-item .value.positive {
-  color: #7ec97f;
+.lc-swatch {
+  align-self: center;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--series);
 }
-
-.detail-item .value.negative {
-  color: #ff7c7c;
+.lc-grid {
+  stroke: var(--grid);
+  stroke-width: 1;
 }
-
-.metrics-chart-loading,
-.metrics-chart-error,
-.metrics-chart-empty {
-  padding: 40px;
-  text-align: center;
-  color: #999;
-  background: #252525;
-  border-radius: 8px;
+.lc-tick {
+  font: 400 11px var(--mono);
+  fill: var(--text-3);
 }
-
-.metrics-chart-error {
-  color: #ff4444;
+.lc-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.lc-dot {
+  fill: var(--series);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+.lc-cross {
+  stroke: var(--text-3);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.lc-s1 {
+  --series: var(--s1);
+}
+.lc-s2 {
+  --series: var(--s2);
+}
+.lc-s3 {
+  --series: var(--s3);
+}
+.lc-s4 {
+  --series: var(--s4);
+}
+.lc-s5 {
+  --series: var(--s5);
 }

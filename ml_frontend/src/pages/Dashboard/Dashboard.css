@@ -1,152 +1,19 @@
-.dashboard-container {
-  padding: 1rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
-  animation: fadeIn var(--transition);
+/* A refresh after a write failed; the table still shows the previous payload. */
+.dash-stale {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--fail-ink);
 }
 
-.dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
+.dash-recent td {
+  white-space: nowrap;
 }
-
-.dashboard-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--foreground);
-  margin: 0;
-  position: relative;
-  padding-bottom: 0.5rem;
-}
-
-.dashboard-title::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 3rem;
-  height: 3px;
-  background-color: var(--primary);
-  border-radius: var(--radius-full);
-}
-
-.dashboard-actions {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.dashboard-button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
+.dash-run {
   font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
 }
-
-.dashboard-button:hover {
-  background-color: var(--input);
-  border-color: var(--primary);
+.dash-exp {
+  color: var(--text);
 }
-
-.dashboard-button.primary {
-  background-color: var(--primary);
-  color: white;
-  border-color: var(--primary-dark);
-}
-
-.dashboard-button.primary:hover {
-  background-color: var(--primary-hover);
-}
-
-.dashboard-content {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 1.5rem;
-}
-
-/* Left column - search & experiment list */
-.dashboard-left {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* Right column - activity */
-.dashboard-right {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* Shown when a search or tag filter matches nothing. Not an error state. */
-.dashboard-no-matches {
-  margin: 0;
-  padding: 2rem 1.5rem;
-  background-color: var(--card);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--card-foreground);
-  opacity: 0.85;
-  text-align: center;
-}
-
-.dashboard-loading,
-.dashboard-error {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 2rem 0;
-  color: var(--foreground);
-}
-
-.dashboard-error pre {
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--error);
-  border-radius: var(--radius);
-  padding: 0.875rem 1rem;
-  color: var(--card-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  overflow-x: auto;
-  white-space: pre-wrap;
-}
-
-/* Responsive adjustments */
-@media (max-width: 1024px) {
-  .dashboard-content {
-    grid-template-columns: 1fr;
-  }
-
-  .dashboard-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .dashboard-title {
-    font-size: 1.75rem;
-  }
-}
-
-@media (max-width: 640px) {
-  .dashboard-actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .dashboard-button {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-  }
+.dash-when {
+  color: var(--text-2);
 }

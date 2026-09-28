@@ -1,81 +1,37 @@
-.settings-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  animation: fadeIn var(--transition) ease-in-out;
+.settings-panel {
+  max-width: 760px;
 }
-
-.settings-title {
-  margin-bottom: 2rem;
-  font-size: 2rem;
-  font-weight: 700;
-}
-
-.settings-section {
-  background-color: var(--card);
-  border-radius: var(--radius);
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  box-shadow: var(--shadow);
-}
-
-.section-title {
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 1.25rem;
-}
-
-.theme-selector {
-  margin-bottom: 1.5rem;
-}
-
-.setting-label {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
-}
-
-.theme-options {
+.settings-row {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.settings-help {
+  margin: 2px 0 0;
+  font-size: 14px;
 }
 
-.theme-button {
-  padding: 0.5rem 1.25rem;
-  background-color: var(--input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--card-foreground);
-  cursor: pointer;
-  transition: all var(--transition);
+/* Two joined buttons; the pressed one takes the accent. */
+.segmented {
+  display: inline-flex;
 }
-
-.theme-button:hover {
-  background-color: var(--primary-light);
-  color: var(--foreground);
+.segmented .btn {
+  min-width: 76px;
+  border-radius: 0;
 }
-
-.theme-button.active {
-  background-color: var(--primary);
-  color: white;
-  border-color: var(--primary);
+.segmented .btn:first-child {
+  border-radius: var(--r) 0 0 var(--r);
 }
-
-.theme-description {
-  font-size: 0.875rem;
-  color: var(--card-foreground);
-  opacity: 0.8;
+.segmented .btn:last-child {
+  border-radius: 0 var(--r) var(--r) 0;
+  margin-left: -1px;
 }
-
-@media (max-width: 768px) {
-  .settings-container {
-    padding: 1rem;
-  }
-  
-  .theme-options {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
+.segmented .btn[aria-pressed="true"] {
+  position: relative;
+  z-index: 1;
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }

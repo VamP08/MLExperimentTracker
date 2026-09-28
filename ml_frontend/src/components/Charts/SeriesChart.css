@@ -1,0 +1,114 @@
+.series-grid-wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.series {
+  position: relative;
+  margin: 0;
+  padding: 18px 18px 16px;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-right: -1px;
+  margin-bottom: -1px;
+  --series: var(--s1);
+  --series-edge: var(--s1-edge);
+}
+/* The coloured edge on each series: the one place the spectral palette shows outside a line. */
+.series::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--series-edge);
+}
+.series-2 {
+  --series: var(--s2);
+  --series-edge: var(--s2-edge);
+}
+.series-3 {
+  --series: var(--s3);
+  --series-edge: var(--s3-edge);
+}
+.series-4 {
+  --series: var(--s4);
+  --series-edge: var(--s4-edge);
+}
+.series-5 {
+  --series: var(--s5);
+  --series-edge: var(--s5-edge);
+}
+
+.series-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.series-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.series-value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.series-at {
+  height: 20px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-align: right;
+}
+.series svg {
+  display: block;
+  width: 100%;
+  height: 110px;
+  margin-top: 6px;
+  overflow: visible;
+}
+.series-grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+.series-tick {
+  font: 400 10px var(--mono);
+  fill: var(--text-3);
+}
+.series-line {
+  fill: none;
+  stroke: var(--series);
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.series-dot {
+  fill: var(--series);
+}
+.series-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.series-foot b {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.series-empty {
+  margin: 16px 0 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}

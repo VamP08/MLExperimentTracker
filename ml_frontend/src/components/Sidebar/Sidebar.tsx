@@ -1,134 +1,160 @@
-import React, { useState } from "react"
-import { useNavigate, useLocation } from "react-router-dom"
-import { FiHome, FiMenu, FiSettings, FiBarChart2, FiLayers } from "react-icons/fi"
+import { useEffect } from "react"
+import { Link, NavLink, useLocation } from "react-router-dom"
+import { LuFlaskConical, LuLayoutGrid, LuList, LuSettings, LuX } from "react-icons/lu"
 import { useLastVisited } from "../../lib/navigationMemory"
+import { useDashboard } from "../../lib/dashboard"
+import { setNavOpen, useNavOpen } from "../../lib/shell"
+import { IS_DEMO } from "../../lib/api"
 import styles from "./Sidebar.module.css"
 
-type Page = "dashboard" | "experiment" | "runs" | "settings"
+// Interrupted runs are hollow; anything unrecognised reads as running, as it does everywhere else.
+const statusClass = (status: string) =>
+  status === "completed"
+    ? styles.ok
+    : status === "failed"
+      ? styles.fail
+      : status === "interrupted" || status === "archived"
+        ? styles.idle
+        : styles.live
 
-type MenuItemProps = {
-  icon: React.ReactNode
-  text: string
-  isExpanded: boolean
-  isActive: boolean
-  onClick: () => void
-}
-
-const MenuItem = ({ icon, text, isExpanded, isActive, onClick }: MenuItemProps) => {
-  return (
-    <button
-      className={`${styles.menuItem} ${isActive ? styles.active : ""}`}
-      onClick={onClick}
-      aria-current={isActive ? "page" : undefined}
-    >
-      <span className={styles.menuItemIcon}>{icon}</span>
-      {isExpanded && <span className={styles.menuItemText}>{text}</span>}
-    </button>
-  )
-}
-
+/**
+ * The fixed navigation rail: the four sections, then the archive itself as a tree.
+ *
+ * The tree answers "where am I and what is next to it" without a second request — the
+ * dashboard payload already lists every experiment's runs. Only the experiment on screen is
+ * expanded, so a large archive stays a list of names rather than a wall of runs.
+ */
 const Sidebar = () => {
-  const [isExpanded, setIsExpanded] = useState(true)
-  const navigate = useNavigate()
   const location = useLocation()
+  const open = useNavOpen()
+  const { data } = useDashboard()
 
-  // Map route paths to page keys for active state. Still correct now that the
-  // two entries below carry ids: `/experiment/<id>` and `/runs/<id>` share the
-  // prefixes these tests match, and no other route starts with either.
-  const getActivePage = (): Page => {
-    if (location.pathname.startsWith("/experiment")) return "experiment"
-    if (location.pathname.startsWith("/runs")) return "runs"
-    if (location.pathname.startsWith("/settings")) return "settings"
-    // Default to dashboard for root or anything else
-    return "dashboard"
-  }
-
-  const activePage = getActivePage()
-
-  // `/experiment` and `/runs` resolve server-side to the most recently active
-  // experiment and the newest run, so they were never a way *back* to anything.
-  // Point them at the last experiment and run that actually loaded; fall back to
-  // the parameterless routes only when nothing has been visited yet.
+  // `/experiment` and `/runs` resolve server-side to the most recent experiment and run, so
+  // they were never a way back. Point the entries at what last actually loaded.
   const lastExperimentId = useLastVisited("experiment")
   const lastRunId = useLastVisited("run")
-
-  const experimentPath = lastExperimentId
-    ? `/experiment/${encodeURIComponent(lastExperimentId)}`
-    : "/experiment"
+  const experimentPath = lastExperimentId ? `/experiment/${encodeURIComponent(lastExperimentId)}` : "/experiment"
   const runsPath = lastRunId ? `/runs/${encodeURIComponent(lastRunId)}` : "/runs"
 
+  const path = decodeURIComponent(location.pathname)
+  const routeRunId = path.startsWith("/runs/") ? path.slice("/runs/".length) : null
+  const routeExperimentId = path.startsWith("/experiment/") ? path.slice("/experiment/".length) : null
+  const openExperimentId =
+    routeExperimentId ??
+    (routeRunId ? data?.find((e) => e.runs.some((r) => r._id === routeRunId))?._id : undefined) ??
+    (path === "/experiment" ? lastExperimentId : null) ??
+    (path === "/runs" && lastRunId ? data?.find((e) => e.runs.some((r) => r._id === lastRunId))?._id : undefined)
+
+  // A drawer left open across a navigation would cover the page the user just asked for.
+  useEffect(() => {
+    setNavOpen(false)
+  }, [location.pathname])
+
+  const section = path.startsWith("/experiment")
+    ? "experiment"
+    : path.startsWith("/runs")
+      ? "runs"
+      : path.startsWith("/settings")
+        ? "settings"
+        : "dashboard"
+
+  const items = [
+    { key: "dashboard", to: "/", label: "Dashboard", icon: <LuLayoutGrid /> },
+    { key: "experiment", to: experimentPath, label: "Experiments", icon: <LuFlaskConical /> },
+    { key: "runs", to: runsPath, label: "Runs", icon: <LuList /> },
+    { key: "settings", to: "/settings", label: "Settings", icon: <LuSettings /> },
+  ]
+
   return (
-    <div className={`${styles.sidebar} ${isExpanded ? styles.expanded : styles.collapsed}`}>
-      <div className={styles.sidebarContent}>
-        {/* Logo and Toggle Button */}
-        <div className={styles.logoContainer}>
-          {isExpanded ? (
-            <>
-              <div className={styles.logoIcon}>ML</div>
-              <span className={styles.logoText}>ML Tracker</span>
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className={styles.hamburgerToggle}
-                aria-label="Toggle sidebar"
-                title="Toggle sidebar"
-              >
-                <FiMenu className={styles.icon} />
-              </button>
-            </>
-          ) : (
-            <>
-              <div className={styles.logoIcon}>ML</div>
-              <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className={`${styles.hamburgerToggle} ${styles.collapsedToggle}`}
-                aria-label="Toggle sidebar"
-                title="Toggle sidebar"
-              >
-                <FiMenu className={styles.icon} />
-              </button>
-            </>
-          )}
+    <>
+      <button
+        type="button"
+        className={`${styles.backdrop} ${open ? styles.backdropOpen : ""}`}
+        aria-label="Close navigation"
+        tabIndex={open ? 0 : -1}
+        onClick={() => setNavOpen(false)}
+      />
+      <aside className={`${styles.rail} ${open ? styles.open : ""}`} aria-label="Primary">
+        <div className={styles.brand}>
+          <span className={styles.mark} aria-hidden="true">
+            <svg viewBox="0 0 16 16">
+              <path d="M2 12.5 6 7.5l3 3 5-6.5" />
+            </svg>
+          </span>
+          <Link to="/" className={styles.brandName}>
+            MLExperimentTracker
+          </Link>
+          <button type="button" className={styles.close} aria-label="Close navigation" onClick={() => setNavOpen(false)}>
+            <LuX />
+          </button>
         </div>
 
-        {/* Menu Items */}
         <nav className={styles.nav}>
-          <MenuItem
-            icon={<FiHome />}
-            text="Dashboard"
-            isExpanded={isExpanded}
-            isActive={activePage === "dashboard"}
-            onClick={() => navigate("/")}
-          />
-          <MenuItem
-            icon={<FiLayers />}
-            text="Experiments"
-            isExpanded={isExpanded}
-            isActive={activePage === "experiment"}
-            onClick={() => navigate(experimentPath)}
-          />
-          <MenuItem
-            icon={<FiBarChart2 />}
-            text="Runs"
-            isExpanded={isExpanded}
-            isActive={activePage === "runs"}
-            onClick={() => navigate(runsPath)}
-          />
-          <MenuItem
-            icon={<FiSettings />}
-            text="Settings"
-            isExpanded={isExpanded}
-            isActive={activePage === "settings"}
-            onClick={() => navigate("/settings")}
-          />
+          {items.map((item) => (
+            <Link
+              key={item.key}
+              to={item.to}
+              className={styles.navItem}
+              aria-current={section === item.key ? "page" : undefined}
+            >
+              {item.icon}
+              {item.label}
+            </Link>
+          ))}
         </nav>
 
-        {isExpanded && (
-          <div className={styles.sidebarFooter}>
-            <p>ML Tracker v1.0.0</p>
-          </div>
+        {data && data.length > 0 && (
+          <>
+            <h2 className={styles.treeHead}>
+              <span>Experiments</span>
+              <span className="num">{data.length}</span>
+            </h2>
+            <ul className={styles.tree}>
+              {data.map((experiment) => {
+                const isOpen = experiment._id === openExperimentId
+                return (
+                  <li key={experiment._id}>
+                    <NavLink
+                      to={`/experiment/${encodeURIComponent(experiment._id)}`}
+                      className={`${styles.treeItem} ${isOpen ? styles.treeOpen : ""}`}
+                      title={experiment.name}
+                    >
+                      <LuFlaskConical />
+                      <span className={styles.treeName}>{experiment.name}</span>
+                      <span className={`${styles.treeCount} num`}>{experiment.stats.totalRuns}</span>
+                    </NavLink>
+                    {isOpen && experiment.runs.length > 0 && (
+                      <ul className={styles.runs}>
+                        {experiment.runs.map((run) => (
+                          <li key={run._id}>
+                            <Link
+                              to={`/runs/${encodeURIComponent(run._id)}`}
+                              className={styles.runItem}
+                              aria-current={run._id === routeRunId ? "page" : undefined}
+                              title={`${run.name} · ${run.status}`}
+                            >
+                              <span className={`${styles.dot} ${statusClass(run.status)}`} aria-hidden="true" />
+                              <span className={styles.treeName}>{run.name}</span>
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </>
         )}
-      </div>
-    </div>
+
+        {/* Where the data lives, rather than the package version: the version is only known to
+            the server (/api/health), and the static demo has no server to ask. */}
+        <div className={styles.foot}>
+          <span>{IS_DEMO ? "Static demo" : "Local store"}</span>
+          <b>{IS_DEMO ? "nothing is saved" : "your runs, on this machine"}</b>
+        </div>
+      </aside>
+    </>
   )
 }
 

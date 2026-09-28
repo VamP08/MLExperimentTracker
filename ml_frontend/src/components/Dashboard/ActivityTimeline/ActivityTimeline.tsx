@@ -1,6 +1,5 @@
-// src/components/dashboard/ActivityTimeline.tsx
-import React, { useState } from 'react';
-import './ActivityTimeline.css';
+import { useState } from "react";
+import "./ActivityTimeline.css";
 
 interface Activity {
   date: string;
@@ -11,41 +10,34 @@ interface ActivityTimelineProps {
   activities: Activity[];
 }
 
-const ActivityTimeline: React.FC<ActivityTimelineProps> = ({ activities }) => {
+const COLLAPSED = 3;
+
+const ActivityTimeline = ({ activities }: ActivityTimelineProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const displayActivities = isExpanded ? activities : activities.slice(0, 3);
-  
-  const toggleExpand = () => {
-    setIsExpanded(!isExpanded);
-  };
+  const shown = isExpanded ? activities : activities.slice(0, COLLAPSED);
 
   return (
-    <div className="activity-timeline">
-      <div className="timeline-header">
-        <h2 className="timeline-title">Activity Timeline</h2>
-        {activities.length > 3 && (
-          <button 
-            className="timeline-expand-button" 
-            onClick={toggleExpand}
-          >
-            {isExpanded ? 'Show Less' : 'Show More'}
+    <div className="activity">
+      <div className="activity-head">
+        <h2>Activity</h2>
+        {activities.length > COLLAPSED && (
+          <button type="button" className="btn btn-ghost" onClick={() => setIsExpanded((v) => !v)}>
+            {isExpanded ? "Show less" : `Show all ${activities.length}`}
           </button>
         )}
       </div>
-      <div className="timeline-items">
-        {displayActivities.map((activity, i) => (
-          <div key={i} className="timeline-item">
-            <div className="timeline-line" />
-            <div className="timeline-icon">
-              <span>✓</span>
-            </div>
-            <div className="timeline-content">
-              <p className="timeline-date">{activity.date}</p>
-              <p className="timeline-event">{activity.event}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+      {shown.length > 0 ? (
+        <ol className="activity-list">
+          {shown.map((activity, i) => (
+            <li key={i} className="activity-item">
+              <span className="activity-date num">{activity.date}</span>
+              <span className="activity-event">{activity.event}</span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="activity-empty muted">No activity recorded.</p>
+      )}
     </div>
   );
 };

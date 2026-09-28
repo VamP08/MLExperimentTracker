@@ -1,199 +1,188 @@
-import Information from '../../../components/Runs/Overview/Information/Information';
-import RunParams from '../../../components/Runs/Overview/RunParam/RunParams';
-import Metrics from '../../../components/Runs/Overview/Metrics/Metrics';
-import Tags from '../../../components/Runs/Overview/Tags/Tags';
-import Insights from '../../../components/Runs/Overview/Insights/Insights';
-import Description from '../../../components/Runs/Overview/Description/Description';
-import Provenance from '../../../components/Runs/Provenance/Provenance';
-import './Overview.css';
-import { useEffect, useState } from 'react';
-import { apiFetch } from '../../../lib/api';
+import { useEffect, useState } from "react";
+import SeriesChart from "../../../components/Charts/SeriesChart";
+import type { SeriesPoint } from "../../../components/Charts/SeriesChart";
+import { apiFetch } from "../../../lib/api";
+import "./Overview.css";
+
+export interface LogRecord {
+  timestamp?: number;
+  level?: string;
+  source?: string;
+  message?: string;
+}
+
+interface Series {
+  name: string;
+  data: SeriesPoint[];
+}
 
 interface OverviewProps {
   runId: string;
+  parameters: Record<string, unknown>;
+  logs: LogRecord[] | null;
+  logsCapped: boolean;
+  onOpenTab: (tab: "run-params" | "logs" | "metrics") => void;
 }
 
-interface ParametersData {
-  name: string;
-  value: number;
+/** Most recent lines shown here; the Logs tab has the rest. */
+const LOG_TAIL = 12;
+
+function paramValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
-interface MetricsData {
-  name: string;
-  value: number;
-}
-
-// GAPS M13: these are the keys the API actually sends. The response is cast
-// straight into this interface, so a name that is wrong here renders blank
-// forever with nothing to catch it — `Starttime`/`Endtime` did exactly that.
-interface RunInformation {
-  _id: string;
-  status: string;
-  startTime: string | null;
-  endTime: string | null;
-  duration: number;
-  tags: string[];
-}
-
-interface RunInsight {
-  parameters: number;
-  metrics: number;
-  topMetric: {
-    name: string;
-    value: string;
-  };
-}
-
-const Overview = ( {runId}: OverviewProps) => {
-  const [parametersData, setParametersData] = useState<ParametersData[]>([]);
-  const [metricsData, setMetricsData] = useState<MetricsData[]>([]);
-  const [run, setRunData] = useState<RunInformation | null>(null);
-  const [insight, setRunInsight] = useState<RunInsight | null>(null);
-  const [allTags, setAllTags] = useState<string[]>([]);
-  const [description, setDescription] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+/**
+ * The run at a glance: every metric series, the hyperparameters, and the tail of its log.
+ *
+ * Nothing here is computed from the series beyond their extremes; the latest values and the
+ * stats in the Metrics tab come from `summary.json`, exactly as the rest of the product reads
+ * them.
+ */
+const Overview = ({ runId, parameters, logs, logsCapped, onOpenTab }: OverviewProps) => {
+  const [series, setSeries] = useState<Series[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchOverview = async () => {
-      if (!runId) {
-        setLoading(false);
-        return;
-      }
-
-      try{
-        setLoading(true);
-        setError(null);
-
-        const res = await apiFetch(`/api/run/${runId}`);
+    let cancelled = false;
+    setSeries(null);
+    setError(null);
+    apiFetch(`/api/run/${runId}/metrics`)
+      .then(async (res) => {
         if (!res.ok) throw new Error(`Request failed with ${res.status}`);
-
-        const data = await res.json();
-
-        setParametersData(
-          Object.entries(data.parameters || {}).map(([name, value]) => ({
-            name,
-            value: value as number
-          }))
-        );
-
-        const mappedMetrics = Object.entries(data.metrics || {}).map(([name, value]) => ({
-          name,
-          value: value as number
-        }));
-
-        setMetricsData(mappedMetrics);
-        
-        // Find the metric with the highest value (assuming numeric values)
-        let topMetric = { name: "N/A", value: "N/A" };
-
-        if (mappedMetrics.length > 0) {
-          const sorted = [...mappedMetrics].sort((a, b) => b.value - a.value);
-          topMetric = {
-            name: sorted[0].name,
-            value: sorted[0].value.toString()
-          };
-        }
-
-        setRunInsight({
-          parameters: Object.keys(data.parameters || {}).length,
-          metrics: mappedMetrics.length,
-          topMetric
-        });
-        setRunData(data)
-        setDescription(data.description || "");
-        setAllTags(data.tags || []);
-
-      }
-      catch (err) {
-        // GAPS M24: this used to be a bare console.error, which left the page
-        // showing an empty shell that was indistinguishable from a slow load.
-        setError(err instanceof Error ? err.message : "Unknown error");
-        setRunData(null);
-      }
-      finally {
-        setLoading(false);
-      }
+        const body = await res.json();
+        if (!cancelled) setSeries(Array.isArray(body) ? body : []);
+      })
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Unknown error"));
+    return () => {
+      cancelled = true;
     };
-
-    fetchOverview();
   }, [runId]);
 
-  const handleAddTag = async (newTag: string) => {
-  if (!allTags.includes(newTag)) {
-    const updatedTags = [...allTags, newTag];
-    setAllTags(updatedTags);
-
-    try {
-      await apiFetch(`/api/run/${runId}/tags`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags: updatedTags }),
-      });
-    } catch (error) {
-      console.error('Failed to update tags:', error);
-    }
-  }};
-
-  const handleEditDescription = async (newDesc: string) => {
-  setDescription(newDesc);
-
-  try {
-    await apiFetch(`/api/run/${runId}/description`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: newDesc }),
-    });
-  } catch (error) {
-    console.error('Failed to update description:', error);
-  }};
-
-  if (loading) {
-    return <div className="run-overview-message">Loading run overview...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="run-overview-message run-overview-error">
-        Could not load this run: {error}
-      </div>
-    );
-  }
+  const steps = series?.flatMap((s) => s.data.map((d) => d.step)).filter((s): s is number => typeof s === "number") ?? [];
+  const stepRange = steps.length ? `steps ${Math.min(...steps)}–${Math.max(...steps)}` : "";
+  const paramEntries = Object.entries(parameters);
+  const tail = logs ? logs.slice(-LOG_TAIL) : [];
 
   return (
-    <div className="run-overview-container">
-      <div className="left-column">
-        <div className="card params-card">
-          <h2 className="section-title">Run Parameters</h2>
-          <RunParams params={parametersData} />
+    <div className="stack">
+      <section className="panel" aria-labelledby="ov-metrics">
+        <div className="panel-head">
+          <h2 id="ov-metrics">Metrics</h2>
+          {series && series.length > 0 && (
+            <span className="sub num">
+              {series.length} {series.length === 1 ? "series" : "series"} · {stepRange}
+            </span>
+          )}
+          <span className="spacer" />
+          {series && series.length > 0 && (
+            <button type="button" className="link" onClick={() => onOpenTab("metrics")}>
+              Summary statistics
+            </button>
+          )}
         </div>
-        <div className="card metrics-card">
-          <h2 className="section-title">Metrics</h2>
-          <Metrics metrics={metricsData} />
-        </div>
-      </div>
-      <div className="right-column">
-        <div className="card information-card">
-          {run && <Information runInfo={run} />}
-        </div>
-        <div className="card tags-card">
-          <Tags 
-            tags={allTags} 
-            onAddTag={handleAddTag}
-          />
-        </div>
-        <div className="card description-card">
-          <Description
-            description={description}
-            onEdit={handleEditDescription}
-          />
-        </div>
-        <div className="card insights-card">
-          {insight && <Insights insights={insight} />}
-        </div>
-        {/* Carries its own card, because a run with no manifest — every run written
-            before format 1.1 — must render nothing rather than an empty card. */}
-        <Provenance runId={runId} />
+        {error ? (
+          <div className="state error">Could not load the metric series: {error}</div>
+        ) : series === null ? (
+          <div className="state">Loading metric series…</div>
+        ) : series.length === 0 ? (
+          <div className="state">
+            <h3>No metrics logged</h3>
+            <p>
+              This run wrote no rows to <code>metrics.jsonl</code>. Call <code>run.log({"{...}"}, step=i)</code> in the
+              training loop to record them.
+            </p>
+          </div>
+        ) : (
+          <div className="series-clip">
+            <div className="series-grid-wrap">
+              {series.map((s, i) => (
+                <SeriesChart key={s.name} name={s.name} data={s.data} index={i} />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <div className="overview-lower">
+        <section className="panel" aria-labelledby="ov-params">
+          <div className="panel-head">
+            <h2 id="ov-params">Parameters</h2>
+            <span className="sub num">{paramEntries.length}</span>
+            <span className="spacer" />
+            {paramEntries.length > 0 && (
+              <button type="button" className="link" onClick={() => onOpenTab("run-params")}>
+                All parameters
+              </button>
+            )}
+          </div>
+          {paramEntries.length === 0 ? (
+            <div className="state">No parameters recorded. Pass a <code>config</code> to <code>init()</code>.</div>
+          ) : (
+            <table className="kv">
+              <tbody>
+                {paramEntries.map(([key, value]) => (
+                  <tr key={key}>
+                    <td>{key}</td>
+                    <td>{paramValue(value)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        <section className="panel" aria-labelledby="ov-logs">
+          <div className="panel-head">
+            <h2 id="ov-logs">Logs</h2>
+            {logs && (
+              <span className="sub num">
+                {logsCapped ? `${logs.length}+` : logs.length} lines
+              </span>
+            )}
+            <span className="spacer" />
+            {logs && logs.length > 0 && (
+              <button type="button" className="link" onClick={() => onOpenTab("logs")}>
+                Open full log
+              </button>
+            )}
+          </div>
+          {logs === null ? (
+            <div className="state">Loading the captured log…</div>
+          ) : logs.length === 0 ? (
+            <div className="state">Nothing was captured for this run.</div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table log-table">
+                <thead>
+                  <tr>
+                    <th className="r">Time (s)</th>
+                    <th>Level</th>
+                    <th>Source</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tail.map((line, i) => (
+                    <tr key={i}>
+                      <td className="r mono t">{typeof line.timestamp === "number" ? `+${line.timestamp.toFixed(3)}` : ""}</td>
+                      <td>
+                        <span className={`lvl lvl-${line.level ?? "info"}`}>{line.level ?? ""}</span>
+                      </td>
+                      <td>
+                        <span className={`src src-${line.source ?? ""}`}>{line.source ?? ""}</span>
+                      </td>
+                      <td className="mono m" title={line.message}>
+                        {line.message}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );

@@ -108,3 +108,30 @@ export function describeMetricStats(group: MetricGroup): string {
     ? stats.join(', ')
     : 'Latest value only — no summary statistics logged.';
 }
+
+/** The server's key transform, ported: `val_loss` → `valLoss`, `learning-rate` → `learningRate`. */
+function camelCase(key: string): string {
+  const parts = key.split(/[_\s-]+/);
+  return parts[0].toLowerCase() + parts.slice(1).map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
+}
+
+const RESERVED = new Set(['timestamp', 'absolute_timestamp', 'step', 'run_id', 'run_status', 'run_state', 'start_timestamp']);
+
+/**
+ * Map each camelCased metric key back to the name it was logged under.
+ *
+ * The run payload's flat `metrics` object has been through the server's camelCase transform,
+ * but `metricsHistory` carries the raw rows, so the recorded names survive there. Showing
+ * `val_loss` on one tab and `valLoss` on another would read as two different metrics.
+ */
+export function recordedNames(history: unknown): Map<string, string> {
+  const names = new Map<string, string>();
+  if (!Array.isArray(history)) return names;
+  for (const row of history) {
+    if (!row || typeof row !== 'object') continue;
+    for (const key of Object.keys(row)) {
+      if (!RESERVED.has(key) && !names.has(camelCase(key))) names.set(camelCase(key), key);
+    }
+  }
+  return names;
+}

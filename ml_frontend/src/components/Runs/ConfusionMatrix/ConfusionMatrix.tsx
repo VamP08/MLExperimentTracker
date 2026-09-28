@@ -97,14 +97,6 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
     }
   };
 
-  const getColor = (value: number, max: number): string => {
-    const intensity = max > 0 ? value / max : 0;
-    const hue = 220; // Blue
-    const saturation = 70 + intensity * 30;
-    const lightness = 95 - intensity * 60;
-    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  };
-
   const formatValue = (value: number): string => {
     if (normalizeMode === 'none') {
       return value.toString();
@@ -112,12 +104,24 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
     return (value * 100).toFixed(1) + '%';
   };
 
+  const shell = (body: React.ReactNode, controls?: React.ReactNode, sub?: React.ReactNode) => (
+    <section className="panel" aria-labelledby="cm-head">
+      <div className="panel-head">
+        <h2 id="cm-head">Confusion matrix</h2>
+        {sub}
+        <span className="spacer" />
+        {controls}
+      </div>
+      {body}
+    </section>
+  );
+
   if (loading) {
-    return <div className="confusion-matrix loading">Loading confusion matrix...</div>;
+    return shell(<div className="state">Loading confusion matrix…</div>);
   }
 
   if (error) {
-    return <div className="confusion-matrix error">Error: {error}</div>;
+    return shell(<div className="state error">Could not load the confusion matrix: {error}</div>);
   }
 
   // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
@@ -127,111 +131,99 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
 
   const normalizedMatrix = getNormalizedMatrix();
   const maxValue = Math.max(...normalizedMatrix.flat());
+  const perClass =
+    data.precision?.length === data.labels.length &&
+    data.recall?.length === data.labels.length &&
+    data.f1Score?.length === data.labels.length;
 
-  return (
-    <div className="confusion-matrix">
-      <div className="matrix-header">
-        <h3>Confusion Matrix</h3>
-        
-        <div className="matrix-controls">
-          <label>Normalize:</label>
-          <select value={normalizeMode} onChange={(e) => setNormalizeMode(e.target.value as typeof normalizeMode)}>
-            <option value="none">None (raw counts)</option>
-            <option value="true">By True Label (rows)</option>
-            <option value="pred">By Predicted Label (columns)</option>
-            <option value="all">By Total</option>
-          </select>
-        </div>
-      </div>
-
-      {data.accuracy !== undefined && (
-        <div className="matrix-metrics">
-          <div className="metric-item">
-            <span className="metric-label">Overall Accuracy:</span>
-            <span className="metric-value">{(data.accuracy * 100).toFixed(2)}%</span>
-          </div>
-        </div>
-      )}
-
-      <div className="matrix-container">
-        <div className="matrix-labels-vertical">
-          <span className="axis-label">True Label</span>
-        </div>
-        
-        <div className="matrix-content">
-          <div className="matrix-table-wrapper">
-            <table className="matrix-table">
-              <thead>
-                <tr>
-                  <th className="corner-cell"></th>
-                  {data.labels.map(label => (
-                    <th key={`pred-${label}`} className="column-header">
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.labels.map((trueLabel, rowIdx) => (
-                  <tr key={`row-${trueLabel}`}>
-                    <th className="row-header">{trueLabel}</th>
-                    {data.labels.map((_, colIdx) => {
-                      const value = normalizedMatrix[rowIdx][colIdx];
-                      const isCorrect = rowIdx === colIdx;
-                      
-                      return (
-                        <td
-                          key={`cell-${rowIdx}-${colIdx}`}
-                          className={`matrix-cell ${isCorrect ? 'correct' : 'incorrect'}`}
-                          style={{
-                            backgroundColor: getColor(value, maxValue),
-                            color: value / maxValue > 0.5 ? '#fff' : '#000',
-                          }}
-                        >
-                          {formatValue(value)}
-                        </td>
-                      );
-                    })}
-                  </tr>
+  return shell(
+    <>
+      <div className="panel-body">
+        <div className="cm-wrap">
+          <table className="cm">
+            <caption className="sr-only">Rows are the true label, columns the predicted label.</caption>
+            <thead>
+              <tr>
+                <th className="cm-corner" rowSpan={2}>
+                  True label
+                </th>
+                <th className="cm-axis-top" colSpan={data.labels.length} scope="colgroup">
+                  Predicted label
+                </th>
+              </tr>
+              <tr>
+                {data.labels.map((label) => (
+                  <th key={`pred-${label}`} scope="col" className="cm-label">
+                    {label}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          
-          <div className="matrix-labels-horizontal">
-            <span className="axis-label">Predicted Label</span>
-          </div>
+              </tr>
+            </thead>
+            <tbody>
+              {data.labels.map((trueLabel, rowIdx) => (
+                <tr key={`row-${trueLabel}`}>
+                  <th scope="row" className="cm-label cm-row">
+                    {trueLabel}
+                  </th>
+                  {data.labels.map((_, colIdx) => {
+                    const value = normalizedMatrix[rowIdx][colIdx];
+                    return (
+                      <td
+                        key={`cell-${rowIdx}-${colIdx}`}
+                        className={`cm-cell mono${rowIdx === colIdx ? ' diag' : ''}`}
+                        style={{ '--i': maxValue > 0 ? value / maxValue : 0 } as React.CSSProperties}
+                      >
+                        {formatValue(value)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+        <p className="cm-note">Rows are the true label, columns the predicted label; the deeper the blue, the larger the value.</p>
       </div>
 
-      {data.precision?.length === data.labels.length &&
-        data.recall?.length === data.labels.length &&
-        data.f1Score?.length === data.labels.length && (
-        <div className="class-metrics">
-          <h4>Per-Class Metrics</h4>
-          <table className="metrics-table">
+      {perClass && (
+        <div className="table-wrap cm-classes">
+          <table className="table">
             <thead>
               <tr>
                 <th>Class</th>
-                <th>Precision</th>
-                <th>Recall</th>
-                <th>F1-Score</th>
+                <th className="r">Precision</th>
+                <th className="r">Recall</th>
+                <th className="r">F1 score</th>
               </tr>
             </thead>
             <tbody>
               {data.labels.map((label, idx) => (
                 <tr key={`metrics-${label}`}>
-                  <td className="class-label">{label}</td>
-                  <td className="metric-cell">{(data.precision![idx] * 100).toFixed(2)}%</td>
-                  <td className="metric-cell">{(data.recall![idx] * 100).toFixed(2)}%</td>
-                  <td className="metric-cell">{(data.f1Score![idx] * 100).toFixed(2)}%</td>
+                  <td>{label}</td>
+                  <td className="r mono">{(data.precision![idx] * 100).toFixed(2)}%</td>
+                  <td className="r mono">{(data.recall![idx] * 100).toFixed(2)}%</td>
+                  <td className="r mono">{(data.f1Score![idx] * 100).toFixed(2)}%</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-    </div>
+    </>,
+    <label>
+      <span className="sr-only">Normalise</span>
+      <select className="select" value={normalizeMode} onChange={(e) => setNormalizeMode(e.target.value as typeof normalizeMode)}>
+        <option value="none">Raw counts</option>
+        <option value="true">Normalise by true label (rows)</option>
+        <option value="pred">Normalise by predicted label (columns)</option>
+        <option value="all">Normalise by total</option>
+      </select>
+    </label>,
+    data.accuracy !== undefined ? (
+      <span className="sub num">
+        accuracy <span className="mono">{(data.accuracy * 100).toFixed(2)}%</span>
+      </span>
+    ) : undefined,
   );
 };
 

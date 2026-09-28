@@ -1,0 +1,285 @@
+.repro {
+  overflow: hidden;
+}
+.repro-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 16px 20px;
+}
+.repro.is-open .repro-bar {
+  border-bottom: 1px solid var(--border);
+}
+.repro-verdict {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.repro-verdict svg {
+  width: 18px;
+  height: 18px;
+}
+.v-reproducible {
+  color: var(--ok-ink);
+}
+.v-drifted {
+  color: var(--drift-ink);
+}
+.v-unverifiable,
+.v-unknown {
+  color: var(--unk-ink);
+}
+.repro-note {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+.repro-tally {
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.repro-tally b {
+  color: var(--text);
+  font-weight: 600;
+}
+.repro-segs {
+  display: flex;
+  gap: 2px;
+}
+.repro-segs i {
+  width: 9px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--ok);
+}
+.repro-segs .seg-drift {
+  background: var(--drift);
+}
+.repro-segs .seg-unknown {
+  background: repeating-linear-gradient(135deg, var(--bg) 0 2px, var(--unk) 2px 3px);
+  outline: 1px solid var(--unk);
+  outline-offset: -1px;
+}
+.repro-spacer {
+  flex: 1;
+}
+.repro-cmd {
+  /* Shrinks and ellipsizes before anything else in the row wraps. */
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg);
+  color: var(--text-2);
+  max-width: 100%;
+}
+.repro-cmd code {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.repro-cmd b {
+  color: var(--accent-ink);
+  font-weight: 500;
+}
+.repro-cmd button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--text-3);
+  flex: none;
+}
+.repro-cmd button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.repro-cmd svg {
+  width: 14px;
+  height: 14px;
+}
+.repro-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  color: var(--accent-ink);
+}
+.repro-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.repro-link svg {
+  width: 15px;
+  height: 15px;
+}
+.repro-toggle {
+  height: 34px;
+}
+.repro-chev {
+  transition: transform 200ms var(--ease);
+}
+.repro.is-open .repro-chev {
+  transform: rotate(180deg);
+}
+
+.repro-groups {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.05fr;
+}
+.repro-groups[hidden] {
+  display: none;
+}
+.repro-group {
+  padding: 18px 20px 20px;
+  min-width: 0;
+}
+.repro-group + .repro-group {
+  border-left: 1px solid var(--border);
+}
+.repro-group h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.repro-group h3 span {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.repro-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.repro-checks li {
+  display: grid;
+  grid-template-columns: 18px 118px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+.rc-label {
+  font-size: 14px;
+  color: var(--text-2);
+}
+.rc-value {
+  font-size: 13.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-value s {
+  color: var(--text-3);
+}
+.repro-key {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-2);
+}
+.repro-key .rc-label {
+  color: var(--text);
+  font-weight: 500;
+}
+.repro-key .rc-value {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: normal;
+}
+.repro-key li {
+  grid-template-columns: 18px 96px minmax(0, 1fr);
+}
+.repro-none {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.rs-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+.rs-mark svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+.rs-ok {
+  background: var(--ok);
+  color: #fff;
+}
+[data-theme="dark"] .rs-ok {
+  color: var(--bg);
+}
+.rs-drift {
+  border-radius: 0;
+  color: var(--drift);
+}
+.rs-drift svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+.rs-unknown {
+  border: 1.4px dashed var(--unk);
+  color: var(--unk-ink);
+}
+.rs-unknown svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.4;
+}
+
+@media (max-width: 1100px) {
+  .repro-groups {
+    grid-template-columns: 1fr;
+  }
+  .repro-group + .repro-group {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* One row on a desktop, as the summary is meant to read; it wraps only on a narrow screen. */
+@media (min-width: 1100px) {
+  .repro-bar {
+    flex-wrap: nowrap;
+  }
+  .repro-link,
+  .repro-toggle,
+  .repro-segs {
+    flex: none;
+  }
+  .repro-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Prose in a data cell: the body face, in the drift colour, so it reads as the finding. */
+.rc-prose {
+  font-family: var(--sans);
+  font-size: 14px;
+  letter-spacing: 0;
+  color: var(--drift-ink);
+}

@@ -1,75 +1,35 @@
-.runcomparisonmodal-overlay {
+.cmpmodal-overlay {
   position: fixed;
   inset: 0;
   z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem 1rem;
-  background-color: rgba(15, 23, 42, 0.6);
-  animation: fadeIn var(--transition);
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: rgba(10, 14, 20, 0.5);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-
-.runcomparisonmodal-dialog {
+.cmpmodal {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 64rem;
-  max-height: 100%;
-  background-color: var(--card);
+  width: min(1080px, 100%);
+  max-height: calc(100vh - 48px);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-pop);
 }
-
-.runcomparisonmodal-bar {
+.cmpmodal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
+  gap: 12px;
+  padding: 14px 16px 12px 20px;
   border-bottom: 1px solid var(--border);
 }
-
-.runcomparisonmodal-heading {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--card-foreground);
-  opacity: 0.75;
-}
-
-.runcomparisonmodal-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius);
-  font-size: 1.5rem;
-  line-height: 1;
-  color: var(--card-foreground);
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-}
-
-.runcomparisonmodal-close:hover {
-  background-color: var(--input);
-  color: var(--foreground);
-}
-
-.runcomparisonmodal-body {
-  padding: 1.5rem;
-  overflow-y: auto;
-}
-
-@media (max-width: 768px) {
-  .runcomparisonmodal-overlay {
-    padding: 1rem 0.5rem;
-  }
-
-  .runcomparisonmodal-body {
-    padding: 1rem;
-  }
+.cmpmodal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
 }

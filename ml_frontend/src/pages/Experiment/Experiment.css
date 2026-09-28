@@ -1,202 +1,57 @@
-.experiment-page {
-  display: flex;
-  min-height: 100vh;
-  background-color: var(--background);
-  animation: fadeIn var(--transition);
+.exp-head h1 {
+  overflow-wrap: anywhere;
 }
 
-.experiment-content {
-  flex: 1;
-  padding: 1.5rem 2rem;
-  overflow-y: auto;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-.experiment-header {
-  margin-bottom: 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.experiment-info {
-  flex: 1;
-}
-
-.experiment-name {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: var(--foreground);
-  margin-bottom: 0.25rem;
-  position: relative;
-  padding-bottom: 0.5rem;
-}
-
-.experiment-name::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 3rem;
-  height: 3px;
-  background-color: var(--primary);
-  border-radius: var(--radius-full);
-}
-
-.experiment-date {
-  font-size: 0.875rem;
-  color: var(--card-foreground);
-  opacity: 0.8;
-  /* Reserved so the header does not shift when the date is not yet known. */
-  min-height: 1.25rem;
-}
-
-.experiment-actions {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.experiment-button {
+.exp-facts {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.exp-facts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.exp-facts svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+  flex: none;
+}
+.exp-facts b {
   font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
+  color: var(--text);
+}
+.exp-states {
+  gap: 14px !important;
+}
+.exp-tags {
+  flex-wrap: wrap;
 }
 
-.experiment-button:hover {
-  background-color: var(--input);
-  border-color: var(--primary);
+/* State marks: the same semantic colours as the badges, at dot size. */
+.exp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--unk);
+}
+.exp-dot.ok {
+  background: var(--ok);
+}
+.exp-dot.fail {
+  background: var(--fail);
+}
+.exp-dot.running {
+  background: var(--accent);
 }
 
-.experiment-button.primary {
-  background-color: var(--primary);
-  color: white;
-  border-color: var(--primary-dark);
-}
-
-.experiment-button.primary:hover {
-  background-color: var(--primary-hover);
-}
-
-.tabs-container {
-  display: flex;
-  flex-direction: column;
-}
-
-.tabs {
-  display: flex;
-  border-bottom: 2px solid var(--border);
-  margin-bottom: 1.5rem;
-}
-
-.tab {
-  position: relative;
-  padding: 0.875rem 1.5rem;
-  background: transparent;
-  border: none;
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--card-foreground);
-  opacity: 0.8;
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.tab:hover {
-  color: var(--foreground);
-  opacity: 1;
-}
-
-.tab.active {
-  color: var(--primary);
-  font-weight: 600;
-  opacity: 1;
-}
-
-.tab-indicator {
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: var(--primary);
-}
-
-.tab-content-container {
-  background-color: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  min-height: 400px;
-  border: 1px solid var(--border);
-}
-
-.tab-content {
-  animation: fadeIn var(--transition);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Loading, empty and error for the shell itself. Only the error variant is
-   coloured — an empty storage root is a first-run state, not a fault. */
-.experiment-status {
-  padding: 2rem 1rem;
-  text-align: center;
-  color: var(--card-foreground);
-}
-
-.experiment-status code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-}
-
-.experiment-status-error {
-  color: var(--error);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-/* Remove dark mode media query */
-
-@media (max-width: 768px) {
-  .experiment-content {
-    padding: 1rem;
-  }
-
-  .experiment-header {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .experiment-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .experiment-name {
-    font-size: 1.5rem;
-  }
-
-  .tab {
-    padding: 0.75rem 1rem;
-    font-size: 0.875rem;
-  }
+.exp-panel {
+  min-width: 0;
+  scroll-margin-top: 112px;
 }

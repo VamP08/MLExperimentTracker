@@ -23,7 +23,7 @@ build/
 # What is committed there is an empty placeholder, not a capture: no runs, no metrics,
 # `"source": "not captured yet"`. So the objection that a committed capture keeps answering
 # for an API that no longer exists does not apply — there is nothing in it to go stale.
-# scripts/build_demo_snapshot.py overwrites it locally and in the Pages workflow; the
+# scripts/build_demo_snapshot.py overwrites it locally and in the Render build; the
 # resulting ~540 KiB file is a build artifact and is not meant to be committed.
 
 # Python

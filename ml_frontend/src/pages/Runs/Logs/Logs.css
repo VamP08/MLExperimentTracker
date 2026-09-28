@@ -1,240 +1,95 @@
 /* Every class here is prefixed `logs-`. CSS in this app is global (GAPS N16 counts the
-   collisions), and the generic names this file used to carry — `.log-entry`, `.log-level`,
-   `.log-message` — are exactly the shape that collides with the next component to want
-   one. */
+   collisions), so a generic name here restyles the next component that wants one. The
+   level and source marks (.lvl, .src) come from Overview.css, shared with the log tail. */
 
-.logs-page {
-  padding: 20px;
-}
-
-.logs-header {
+.logs-toolbar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
 }
 
-.logs-header h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--foreground);
-  margin: 0;
+.logs-error {
+  flex-basis: 100%;
+  font-size: 13.5px;
+  color: var(--fail-ink);
 }
 
-.logs-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.logs-table th:nth-child(1) {
+  width: 104px;
+}
+.logs-table th:nth-child(2) {
+  width: 88px;
+}
+.logs-table th:nth-child(3) {
+  width: 92px;
 }
 
-.logs-filter-label {
-  font-size: 0.8125rem;
-  color: var(--card-foreground);
+/* Rows grow with the message: a traceback is several lines of one record. */
+.logs-table td {
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  vertical-align: top;
 }
-
-.logs-level-filter {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background-color: var(--card);
-  font-size: 0.875rem;
-  color: var(--foreground);
+.logs-table td.logs-time {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
 }
-
-.logs-download-button {
-  padding: 8px 16px;
-  background-color: var(--input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.875rem;
-  color: var(--foreground);
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color var(--transition);
-}
-
-.logs-download-button:hover {
-  background-color: var(--background);
-}
-
-/* Loading, error and "nothing was recorded" all land here. They are deliberately the same
-   shape as `.checkpoints-empty` and `.run-shell-message` elsewhere: an empty log is the
-   ordinary state of most runs and must not be dressed as a fault. */
-.logs-status {
-  padding: 24px;
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--card-foreground);
-  font-size: 0.9375rem;
+.logs-table td.logs-message {
+  font-size: 12.5px;
   line-height: 1.6;
-}
-
-.logs-status code {
-  font-family: var(--font-mono);
-  font-size: 0.875em;
-  background-color: var(--input);
-  border-radius: var(--radius-sm);
-  padding: 1px 5px;
-}
-
-.logs-status-error {
-  color: var(--error);
-  border-color: var(--error);
-}
-
-.logs-container {
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 16px;
-  max-height: 560px;
-  overflow-y: auto;
-}
-
-.logs-entry {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.8125rem;
-}
-
-.logs-entry:last-child {
-  border-bottom: none;
-}
-
-/* Elapsed seconds since the run started, tabular so the column stays a column. */
-.logs-elapsed {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--card-foreground);
-  opacity: 0.75;
-  flex-shrink: 0;
-  width: 74px;
-  text-align: right;
-}
-
-.logs-level {
-  flex-shrink: 0;
-  width: 62px;
-  text-align: center;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: #ffffff;
-}
-
-/* Deliberately the quietest chip in the set, and coloured from `--border` rather than
-   dimmed with opacity: opacity would take the label down with the background and leave
-   white-on-pale in the light theme. */
-.logs-level-debug {
-  background-color: var(--border);
-  color: var(--card-foreground);
-}
-
-.logs-level-info {
-  background-color: var(--info);
-}
-
-.logs-level-warning {
-  background-color: var(--warning);
-  color: #111827;
-}
-
-.logs-level-error {
-  background-color: var(--error);
-}
-
-/* Critical is error, outlined rather than recoloured — the palette has four semantic
-   tokens and inventing a fifth colour here would put a value in the theme that the theme
-   does not define. */
-.logs-level-critical {
-  background-color: var(--error);
-  box-shadow: 0 0 0 2px var(--error), 0 0 0 3px var(--card);
-}
-
-/* A level outside the closed vocabulary. Shown verbatim, styled as nothing in particular. */
-.logs-level-unknown {
-  background-color: var(--input);
-  color: var(--card-foreground);
-  border: 1px solid var(--border);
-}
-
-.logs-source {
-  flex-shrink: 0;
-  width: 54px;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--card-foreground);
-  opacity: 0.7;
-}
-
-/* Monospace, and it keeps the newlines: a traceback is one record with line breaks in it
-   (DATA-CONTRACT §3.11), and collapsing them would make the one thing people open this tab
-   for unreadable. */
-.logs-message {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  color: var(--foreground);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  min-width: 260px;
 }
 
-.logs-footer {
+.logs-pager {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 13.5px;
+}
+.logs-pager .spacer {
+  flex: 1;
 }
 
-.logs-count {
-  font-size: 0.8125rem;
-  color: var(--card-foreground);
-}
-
-.logs-more-error {
-  color: var(--error);
-}
-
-.logs-more-button {
-  padding: 7px 14px;
-  background-color: var(--input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
-  color: var(--foreground);
-  transition: background-color var(--transition);
-}
-
-.logs-more-button:hover:not(:disabled) {
-  background-color: var(--background);
-}
-
-.logs-more-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
+/* On a phone the three narrow columns become one line above the message, which then gets
+   the full width instead of scrolling sideways. */
 @media (max-width: 640px) {
-  .logs-header {
-    align-items: flex-start;
-    flex-direction: column;
+  .logs-table,
+  .logs-table tbody {
+    display: block;
   }
-
-  .logs-entry {
+  .logs-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .logs-table tr {
+    display: flex;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--row);
   }
-
-  .logs-message {
+  .logs-table tr:last-child {
+    border-bottom: 0;
+  }
+  .logs-table td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .logs-table td.logs-message {
     flex-basis: 100%;
+    min-width: 0;
   }
 }

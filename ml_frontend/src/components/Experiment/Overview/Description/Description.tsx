@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import './Description.css';
-import { apiFetch } from '../../../../lib/api';
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { FiEdit2 } from "react-icons/fi";
+import "./Description.css";
+import { apiFetch } from "../../../../lib/api";
 
 interface DescriptionProps {
   description: string;
@@ -8,7 +10,8 @@ interface DescriptionProps {
   onEdit?: (newDescription: string) => void;
 }
 
-const Description: React.FC<DescriptionProps> = ({ description, experimentId, onEdit }) => {
+/** The experiment's description under its title, edited in place. */
+const Description = ({ description, experimentId, onEdit }: DescriptionProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedDescription, setEditedDescription] = useState(description);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -20,7 +23,8 @@ const Description: React.FC<DescriptionProps> = ({ description, experimentId, on
     setIsEditing(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (e: FormEvent) => {
+    e.preventDefault();
     if (editedDescription === description) {
       setIsEditing(false);
       return;
@@ -32,12 +36,12 @@ const Description: React.FC<DescriptionProps> = ({ description, experimentId, on
       const res = await apiFetch(`/api/experiment/${experimentId}`, {
         method: "PATCH",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         // An empty string is a legitimate value, not a no-op: the server drops
         // the stored description and the experiment falls back to the one
         // derived from its first run's notes (GAPS M3).
-        body: JSON.stringify({ description: editedDescription })
+        body: JSON.stringify({ description: editedDescription }),
       });
       if (!res.ok) throw new Error(`Request failed with ${res.status}`);
 
@@ -59,36 +63,50 @@ const Description: React.FC<DescriptionProps> = ({ description, experimentId, on
     setIsEditing(false);
   };
 
+  if (isEditing) {
+    return (
+      <form className="exp-desc-edit" onSubmit={handleSave}>
+        <label htmlFor="experiment-description" className="sr-only">
+          Experiment description
+        </label>
+        <textarea
+          id="experiment-description"
+          className="input exp-desc-input"
+          value={editedDescription}
+          autoFocus
+          rows={3}
+          onChange={(e) => setEditedDescription(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && !saving && handleCancel()}
+        />
+        <div className="exp-desc-actions">
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button type="button" className="btn" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </button>
+        </div>
+        {saveError && (
+          <p className="exp-desc-error" role="alert">
+            Could not save the description: {saveError}
+          </p>
+        )}
+      </form>
+    );
+  }
+
   return (
-    <div className="run-description">
-      <h3 className="description-title">Description</h3>
-      
-      {isEditing ? (
-        <div className="description-edit-container">
-          <textarea
-            className="description-textarea"
-            value={editedDescription}
-            onChange={(e) => setEditedDescription(e.target.value)}
-            rows={4}
-          />
-          <div className="description-actions">
-            <button className="save-button" onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button className="cancel-button" onClick={handleCancel} disabled={saving}>Cancel</button>
-          </div>
-          {saveError && (
-            <p className="experiment-description-error" role="alert">
-              Could not save the description: {saveError}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="description-wrapper">
-          <p className="description-text">{description}</p>
-          <button className="edit-button" onClick={handleEdit}>Edit</button>
-        </div>
-      )}
+    <div className="exp-desc">
+      <p className={description ? undefined : "muted"}>{description || "No description."}</p>
+      <button
+        type="button"
+        className="btn btn-icon btn-ghost exp-desc-btn"
+        aria-label="Edit description"
+        title="Edit description"
+        onClick={handleEdit}
+      >
+        <FiEdit2 />
+      </button>
     </div>
   );
 };

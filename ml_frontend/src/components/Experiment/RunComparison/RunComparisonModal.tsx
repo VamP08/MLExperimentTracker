@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { FiX } from 'react-icons/fi';
 import RunComparison from './RunComparison';
 import './RunComparisonModal.css';
 
@@ -10,18 +11,26 @@ interface Props {
 }
 
 /**
- * Dialog shell around `RunComparison` — the "Compare Selected Runs" button in
- * the experiment's runs table opens this (GAPS M11). The comparison itself owns
+ * Dialog shell around `RunComparison` — the "Compare selected" button in the
+ * experiment's runs table opens this (GAPS M11). The comparison itself owns
  * its own fetching and states; this file owns only dismissal and focus.
  */
-const RunComparisonModal: React.FC<Props> = ({ experimentId, selectedRunIds, onClose }) => {
+const RunComparisonModal = ({ experimentId, selectedRunIds, onClose }: Props) => {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  // The caller passes a fresh closure each render; reading it through a ref keeps the
+  // effect below to one run per open, so focus is not bounced on every parent render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
 
+    // Focus goes into the dialog, and back to whatever opened it on close.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.addEventListener('keydown', onKeyDown);
     closeButtonRef.current?.focus();
 
@@ -32,39 +41,33 @@ const RunComparisonModal: React.FC<Props> = ({ experimentId, selectedRunIds, onC
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = previousOverflow;
+      opener?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   return (
-    <div
-      className="runcomparisonmodal-overlay"
-      onClick={onClose}
-      role="presentation"
-    >
+    <div className="cmpmodal-overlay" onClick={onClose} role="presentation">
       <div
-        className="runcomparisonmodal-dialog"
+        className="cmpmodal"
         role="dialog"
         aria-modal="true"
-        aria-label="Compare runs"
+        aria-labelledby="cmpmodal-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="runcomparisonmodal-bar">
-          <span className="runcomparisonmodal-heading">Run comparison</span>
+        <div className="cmpmodal-head">
+          <h2 id="cmpmodal-title">Run comparison</h2>
           <button
             type="button"
             ref={closeButtonRef}
-            className="runcomparisonmodal-close"
+            className="btn btn-icon btn-ghost"
             onClick={onClose}
             aria-label="Close comparison"
           >
-            ×
+            <FiX />
           </button>
         </div>
-        <div className="runcomparisonmodal-body">
-          <RunComparison
-            experimentId={experimentId}
-            initialSelectedRunIds={selectedRunIds}
-          />
+        <div className="cmpmodal-body">
+          <RunComparison experimentId={experimentId} initialSelectedRunIds={selectedRunIds} />
         </div>
       </div>
     </div>

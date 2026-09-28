@@ -1,5 +1,4 @@
-import type React from 'react';
-import './EmptyState.css';
+import "./EmptyState.css";
 
 interface Props {
   /** Re-runs the dashboard fetch, so the page can be filled without a reload. */
@@ -11,50 +10,48 @@ interface Props {
  * install, so it says what the tool is reading and the two ways to put something there
  * (GAPS M24) rather than leaving an unexplained blank page.
  */
-const EmptyState: React.FC<Props> = ({ onRetry }) => {
+const EmptyState = ({ onRetry }: Props) => {
   return (
-    <section className="dashboard-empty" aria-labelledby="dashboard-empty-title">
-      <h2 className="dashboard-empty-title" id="dashboard-empty-title">
-        No runs yet
-      </h2>
-      <p className="dashboard-empty-lead">
-        The dashboard is running and reading your storage directory —{' '}
-        <code>~/.experiment_tracker</code> unless <code>EXPERIMENT_STORAGE_PATH</code> or{' '}
-        <code>mlexp ui --storage</code> points somewhere else. Nothing has been written there yet.
-      </p>
+    <section className="panel" aria-labelledby="dashboard-empty-title">
+      <div className="state empty">
+        <h2 id="dashboard-empty-title">No runs yet</h2>
+        <p>
+          The dashboard is running and reading your storage directory — <code>~/.experiment_tracker</code>{" "}
+          unless <code>EXPERIMENT_STORAGE_PATH</code> or <code>mlexp ui --storage</code> points somewhere else.
+          Nothing has been written there yet.
+        </p>
 
-      <div className="dashboard-empty-options">
-        <div className="dashboard-empty-card">
-          <h3 className="dashboard-empty-card-title">Fill it with example runs</h3>
-          <p className="dashboard-empty-card-text">
-            Writes a small set of example projects so you can look around before instrumenting anything.
-          </p>
-          <pre className="dashboard-empty-code">
-            <code>mlexp demo</code>
-          </pre>
-        </div>
+        <div className="empty-options">
+          <div className="empty-option">
+            <h3>Fill it with example runs</h3>
+            <p>Writes a small set of example projects so you can look around before instrumenting anything.</p>
+            <pre className="empty-code">
+              <code>mlexp demo</code>
+            </pre>
+          </div>
 
-        <div className="dashboard-empty-card">
-          <h3 className="dashboard-empty-card-title">Track a real run</h3>
-          <p className="dashboard-empty-card-text">
-            Three calls in your training script. The run directory is complete at every moment, so this page
-            shows progress while training is still going.
-          </p>
-          <pre className="dashboard-empty-code">
-            <code>
-              {`import mlexperimenttracker as met
+          <div className="empty-option">
+            <h3>Track a real run</h3>
+            <p>
+              Three calls in your training script. The run directory is complete at every moment, so this page
+              shows progress while training is still going.
+            </p>
+            <pre className="empty-code">
+              <code>
+                {`import mlexperimenttracker as met
 
 run = met.init(project="cifar10-cnn", config={"lr": 3e-4})
 run.log({"loss": loss, "accuracy": acc}, step=step)
 run.finish()`}
-            </code>
-          </pre>
+              </code>
+            </pre>
+          </div>
         </div>
-      </div>
 
-      <button type="button" className="dashboard-empty-retry" onClick={onRetry}>
-        Check again
-      </button>
+        <button type="button" className="btn btn-primary" onClick={onRetry}>
+          Check again
+        </button>
+      </div>
     </section>
   );
 };

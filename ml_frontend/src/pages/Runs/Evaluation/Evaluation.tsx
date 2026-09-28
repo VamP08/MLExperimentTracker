@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import './Evaluation.css';
 import ConfusionMatrix from '../../../components/Runs/ConfusionMatrix/ConfusionMatrix';
 import ROCCurve from '../../../components/Runs/ROCCurve/ROCCurve';
 import FeatureImportance from '../../../components/Runs/FeatureImportance/FeatureImportance';
@@ -50,13 +49,21 @@ const Evaluation: React.FC<Props> = ({ runId }) => {
   }, [runId, fetchArtifactTypes]);
 
   if (loading) {
-    return <div className="evaluation-message">Loading evaluation artifacts...</div>;
+    return (
+      <div className="stack">
+        <section className="panel">
+          <div className="state">Loading evaluation artifacts…</div>
+        </section>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="evaluation-message evaluation-message-error">
-        Could not load artifacts: {error}
+      <div className="stack">
+        <section className="panel">
+          <div className="state error">Could not load artifacts: {error}</div>
+        </section>
       </div>
     );
   }
@@ -69,30 +76,26 @@ const Evaluation: React.FC<Props> = ({ runId }) => {
   // empty state — it is not a failure and there is nothing to retry.
   if (!hasMatrix && !hasROC && !hasImportance) {
     return (
-      <div className="evaluation-message">
-        This run logged no evaluation artifacts. Confusion matrices, ROC curves and feature
-        importances appear here once a run writes them to <code>artifacts.jsonl</code>.
+      <div className="stack">
+        <section className="panel">
+          <div className="state">
+            <h3>No evaluation artifacts</h3>
+            <p>
+              This run logged no evaluation artifacts. Confusion matrices, ROC curves and feature
+              importances appear here once a run writes them to <code>artifacts.jsonl</code>.
+            </p>
+          </div>
+        </section>
       </div>
     );
   }
 
+  // Each renderer draws its own panel, heading included.
   return (
-    <div className="evaluation">
-      {hasMatrix && (
-        <section className="evaluation-panel">
-          <ConfusionMatrix runId={runId} />
-        </section>
-      )}
-      {hasROC && (
-        <section className="evaluation-panel">
-          <ROCCurve runId={runId} />
-        </section>
-      )}
-      {hasImportance && (
-        <section className="evaluation-panel">
-          <FeatureImportance runId={runId} />
-        </section>
-      )}
+    <div className="stack">
+      {hasMatrix && <ConfusionMatrix runId={runId} />}
+      {hasROC && <ROCCurve runId={runId} />}
+      {hasImportance && <FeatureImportance runId={runId} />}
     </div>
   );
 };

@@ -1,0 +1,36 @@
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 32px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-spacer {
+  flex: 1;
+}
+.topbar-meta {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.topbar-menu {
+  display: none;
+  margin-left: -8px;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    padding: 0 16px;
+  }
+  .topbar-menu {
+    display: inline-flex;
+  }
+  .topbar-meta {
+    display: none;
+  }
+}

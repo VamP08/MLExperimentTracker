@@ -1,8 +1,8 @@
 /*
- * The demo notice sits above .app-container in normal flow, so it pushes the sidebar and
- * the page down rather than covering anything. Dismissing it collapses the row to zero
- * height first (grid-template-rows 1fr -> 0fr, which animates where `height: auto` cannot)
- * and the component unmounts when that is done, so the page slides up instead of jumping.
+ * The demo notice sits above the shell in normal flow, so it pushes the rail and the page
+ * down rather than covering anything. Dismissing it collapses the row to zero height first
+ * (grid-template-rows 1fr -> 0fr, which animates where `height: auto` cannot) and the
+ * component unmounts when that is done, so the page slides up instead of jumping.
  */
 .demo-banner {
   display: grid;
@@ -20,91 +20,79 @@
 
 .demo-banner-inner {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 12px;
   /* Required for the 0fr collapse to actually clip the content. */
   overflow: hidden;
-  padding: 0.625rem 1.5rem;
-  background-color: var(--card);
-  border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  min-height: 0;
+  padding: 0 12px 0 20px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--tag-line);
+  color: var(--text);
 }
 
 .demo-banner-tag {
   flex: none;
-  margin-top: 0.05rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: var(--radius-full);
-  background-color: var(--primary);
-  color: var(--background);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r);
+  background: var(--bg);
+  border: 1px solid var(--tag-line);
+  color: var(--accent-ink);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .demo-banner-text {
   flex: 1;
+  min-width: 0;
   margin: 0;
-  color: var(--card-foreground);
-  font-size: 0.8125rem;
+  padding: 8px 0;
+  font-size: 13.5px;
   line-height: 1.5;
 }
 
 .demo-banner-run {
-  color: var(--card-foreground);
-  opacity: 0.85;
+  color: var(--text-2);
 }
 
 .demo-banner-code {
-  padding: 0.05rem 0.3rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background-color: var(--input);
-  font-family: var(--font-mono);
-  font-size: 0.875em;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--tag-line);
   white-space: nowrap;
 }
 
 .demo-banner-link {
-  color: var(--primary);
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.demo-banner-link:hover {
-  color: var(--primary-hover);
-}
-
 .demo-banner-dismiss {
   flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: var(--radius-sm);
-  color: var(--card-foreground);
-  font-size: 1.125rem;
-  line-height: 1;
-  opacity: 0.6;
-  transition: all var(--transition-fast);
+  color: var(--text-2);
 }
-
-.demo-banner-dismiss:hover {
-  background-color: var(--input);
-  opacity: 1;
+.demo-banner-dismiss:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--text);
 }
 
 @media (max-width: 768px) {
   .demo-banner-inner {
-    padding: 0.625rem 1rem;
+    align-items: flex-start;
+    padding: 0 8px 0 16px;
+  }
+  .demo-banner-tag {
+    margin-top: 8px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .demo-banner,
-  .demo-banner-dismiss {
+  .demo-banner {
     transition: none;
   }
 }

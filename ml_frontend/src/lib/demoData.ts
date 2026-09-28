@@ -91,9 +91,9 @@ const snapshot: DemoSnapshot = (() => {
 /**
  * Path keys, normalised.
  *
- * Call sites are not consistent about encoding — `RunSwitcher` wraps the experiment id in
- * `encodeURIComponent` and the four other callers of the same endpoint do not — so a
- * project named `my project` arrives both as `my%20project` and as `my project`. Decoding
+ * Call sites are not consistent about encoding — some wrap an id in `encodeURIComponent`
+ * and others pass it raw — so a project named `my project` can arrive both as
+ * `my%20project` and as `my project`. Decoding
  * both the keys and the lookups means the two spellings land on one entry instead of one
  * of them 404ing for no reason a user could see.
  */

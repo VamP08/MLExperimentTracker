@@ -1,196 +1,109 @@
-/* Every class here is prefixed `runcomparison-`. The unprefixed names this file
-   used to carry — .tag, .metric-value, .param-name, .run-name, .run-header —
-   each collide with at least one other global stylesheet in this project. */
-
-.runcomparison {
-  color: var(--card-foreground);
-}
-
-.runcomparison-heading {
-  margin-bottom: 1.5rem;
-}
-
-.runcomparison-title {
-  margin: 0 0 0.25rem 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.runcomparison-subtitle {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--card-foreground);
-  opacity: 0.75;
-}
-
-.runcomparison-selector {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1.75rem;
-}
-
-.runcomparison-run-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.75rem 1rem;
-  text-align: left;
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  transition: border-color var(--transition-fast), background-color var(--transition-fast);
-}
-
-.runcomparison-run-item:hover {
-  border-color: var(--primary);
-  background-color: var(--input);
-}
-
-.runcomparison-run-item-selected {
-  border-color: var(--primary);
-  background-color: var(--input);
-}
-
-.runcomparison-run-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 1.25rem;
-  height: 1.25rem;
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-sm);
-  color: var(--primary);
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.runcomparison-run-item-selected .runcomparison-run-check {
-  background-color: var(--primary);
-  color: var(--card);
-}
-
-.runcomparison-run-info {
+.cmp {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: 24px;
+}
+.cmp-hint {
+  margin: 0 0 -12px;
+  font-size: 14px;
+}
+
+.cmp-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.cmp-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--bg);
+  text-align: left;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.cmp-pick:hover {
+  background: var(--sunk);
+}
+.cmp-pick[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmp-box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.cmp-pick[aria-pressed="true"] .cmp-box {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+.cmp-box svg {
+  width: 12px;
+  height: 12px;
+}
+.cmp-pick-text {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
-
-.runcomparison-run-name {
-  font-size: 0.875rem;
+.cmp-pick-name {
+  font-size: 14px;
   font-weight: 500;
-  color: var(--foreground);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmp-pick-meta {
+  font-size: 12.5px;
+  color: var(--text-2);
 }
 
-.runcomparison-run-meta {
-  font-size: 0.75rem;
-  color: var(--card-foreground);
-  opacity: 0.75;
+.cmp-section h3 {
+  margin-bottom: 10px;
 }
-
-.runcomparison-section {
-  margin-bottom: 2rem;
-}
-
-.runcomparison-section:last-child {
-  margin-bottom: 0;
-}
-
-.runcomparison-section-title {
-  margin: 0 0 0.75rem 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.runcomparison-table-wrap {
-  overflow-x: auto;
+.cmp-table {
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--r);
 }
-
-.runcomparison-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.runcomparison-th {
-  padding: 0.625rem 1rem;
-  text-align: left;
+.cmp-table td,
+.cmp-table tbody th {
   white-space: nowrap;
-  background-color: var(--input);
-  color: var(--card-foreground);
-  font-weight: 600;
-  border-bottom: 1px solid var(--border);
 }
-
-.runcomparison-run-title {
-  color: var(--primary);
-}
-
-.runcomparison-table td {
-  padding: 0.625rem 1rem;
-  color: var(--card-foreground);
-  border-bottom: 1px solid var(--border);
-}
-
-.runcomparison-table tr:last-child td {
-  border-bottom: none;
-}
-
-.runcomparison-row-label {
+/* Row labels: headers for the screen reader, ordinary grey labels to the eye. */
+.cmp-table tbody th {
+  height: 38px;
+  background: none;
+  border-bottom: 1px solid var(--row);
+  font-size: 14px;
   font-weight: 500;
-  color: var(--foreground);
+  color: var(--text-2);
 }
-
-.runcomparison-metric-value,
-.runcomparison-param-value {
-  font-family: var(--font-mono);
-  white-space: nowrap;
+.cmp-table tr:last-child th {
+  border-bottom: 0;
 }
-
-.runcomparison-metric-high {
-  color: var(--info);
+.cmp-differs th,
+.cmp-extreme {
+  color: var(--text);
   font-weight: 600;
 }
-
-.runcomparison-metric-low {
-  color: var(--warning);
-  font-weight: 600;
+.cmp-mark {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
 }
-
-.runcomparison-row-differs {
-  background-color: var(--input);
-}
-
-.runcomparison-diff-dot {
-  margin-left: 0.375rem;
-  color: var(--primary);
-}
-
-.runcomparison-note {
-  margin: 0.5rem 0 0 0;
-  font-size: 0.8125rem;
-  color: var(--card-foreground);
-  opacity: 0.75;
-}
-
-.runcomparison-placeholder {
-  padding: 2rem 1rem;
-  text-align: center;
-  color: var(--card-foreground);
-  opacity: 0.8;
-}
-
-.runcomparison-error {
-  color: var(--error);
-  opacity: 1;
+.cmp-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
 }

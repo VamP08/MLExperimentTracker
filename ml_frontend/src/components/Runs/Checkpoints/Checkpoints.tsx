@@ -5,8 +5,8 @@ import { apiFetch } from '../../../lib/api';
 interface Checkpoint {
   name: string;
   path: string;
-  createdAt: string;
-  step?: number;
+  createdAt: string | null;
+  step?: number | null;
   size: number;
 }
 
@@ -14,6 +14,21 @@ interface Props {
   runId: string;
 }
 
+const formatSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
+
+const formatDate = (value: string | null): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+/** The run's saved checkpoints, newest first — the order the server sorts them in. */
 const Checkpoints: React.FC<Props> = ({ runId }) => {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +38,7 @@ const Checkpoints: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       const response = await apiFetch(`/api/run/${runId}/checkpoints`);
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch checkpoints');
       }
@@ -41,58 +56,53 @@ const Checkpoints: React.FC<Props> = ({ runId }) => {
     fetchCheckpoints();
   }, [runId, fetchCheckpoints]);
 
-  const formatSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
-
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleString();
-  };
-
-  if (loading) {
-    return <div className="checkpoints-loading">Loading checkpoints...</div>;
-  }
-
-  if (error) {
-    return <div className="checkpoints-error">Error: {error}</div>;
-  }
-
-  if (checkpoints.length === 0) {
-    return <div className="checkpoints-empty">No checkpoints saved for this run</div>;
-  }
-
   return (
-    <div className="checkpoints">
-      <h3>Checkpoints ({checkpoints.length})</h3>
-      
-      <div className="checkpoints-list">
-        {checkpoints.map((checkpoint, idx) => (
-          <div key={idx} className="checkpoint-card">
-            <div className="checkpoint-header">
-              <h4>{checkpoint.name}</h4>
-              {checkpoint.step !== undefined && (
-                <span className="checkpoint-step">Step {checkpoint.step}</span>
-              )}
-            </div>
-            <div className="checkpoint-details">
-              <div className="detail-row">
-                <span className="label">Created:</span>
-                <span className="value">{formatDate(checkpoint.createdAt)}</span>
-              </div>
-              <div className="detail-row">
-                <span className="label">Size:</span>
-                <span className="value">{formatSize(checkpoint.size)}</span>
-              </div>
-              <div className="detail-row">
-                <span className="label">Path:</span>
-                <span className="value path">{checkpoint.path}</span>
-              </div>
-            </div>
+    <div className="stack">
+      <section className="panel" aria-labelledby="checkpoints-title">
+        <div className="panel-head">
+          <h2 id="checkpoints-title">Checkpoints</h2>
+          {!loading && !error && <span className="sub num">{checkpoints.length}</span>}
+        </div>
+        {loading ? (
+          <div className="state">Loading checkpoints…</div>
+        ) : error ? (
+          <div className="state error">Could not load checkpoints: {error}</div>
+        ) : checkpoints.length === 0 ? (
+          <div className="state">
+            <h3>No checkpoints saved</h3>
+            <p>
+              This run recorded none. Call <code>run.log_checkpoint()</code> during training to save them.
+            </p>
           </div>
-        ))}
-      </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table checkpoints-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th className="r">Step</th>
+                  <th>Created</th>
+                  <th className="r">Size</th>
+                  <th>Path</th>
+                </tr>
+              </thead>
+              <tbody>
+                {checkpoints.map((checkpoint, idx) => (
+                  <tr key={idx}>
+                    <td>{checkpoint.name}</td>
+                    <td className="r mono">{typeof checkpoint.step === 'number' ? checkpoint.step : '—'}</td>
+                    <td className="checkpoints-nowrap">{formatDate(checkpoint.createdAt)}</td>
+                    <td className="r checkpoints-nowrap">{formatSize(checkpoint.size)}</td>
+                    <td className="mono checkpoints-path" title={checkpoint.path}>
+                      {checkpoint.path}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 };
