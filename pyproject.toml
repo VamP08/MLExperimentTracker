@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mlexperimenttracker"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first ML experiment tracker: a tracking SDK and the dashboard that reads it, in one package."
 readme = "README.md"
 requires-python = ">=3.10"

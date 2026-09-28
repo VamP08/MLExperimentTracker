@@ -2,20 +2,22 @@
 
 [![CI](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml)
 
-Local-first experiment tracking for machine learning. Runs are plain JSON and JSONL files
-in a directory you own — no tracking server, no database, no account, nothing leaving the
-machine — and a bundled dashboard reads that directory and shows you what happened.
+Local-first experiment tracking for ML. Runs are written as plain JSON/JSONL files in a
+directory you own. There's no tracking server, database or account, and a bundled dashboard
+reads that directory.
 
-**Live demo:** <https://mlexperimenttracker-demo.onrender.com> — the real dashboard running
-entirely in your browser, with a snapshot of real runs compiled into the page instead of an
-API behind it. Nothing is installed, nothing is uploaded, and nothing is saved: edits apply
-to memory and vanish on reload.
+**Live demo:** <https://mlexperimenttracker-demo.onrender.com> (a static build with a
+snapshot of real runs, so edits aren't saved).
 
-One install, one command:
+![Dashboard](.github/screenshots/dashboard.png)
+
+![Experiment overview](.github/screenshots/experiment.png)
+
+## Quick start
 
 ```bash
-pip install -e ".[server]"     # not on PyPI yet; install from a clone
-mlexp demo                     # generate example runs
+pip install -e ".[server]"     # not on PyPI yet, install from a clone
+mlexp demo                     # generate some example runs
 mlexp ui                       # dashboard at http://127.0.0.1:5000
 ```
 
@@ -37,26 +39,14 @@ for step, (loss, acc) in enumerate(train()):
 run.finish()
 ```
 
-Or as a context manager, which also records failure:
+It also works as a context manager, which marks the run failed if an exception escapes:
 
 ```python
 with met.init(project="cifar10-cnn") as run:
     run.log({"loss": 0.31}, step=1)
 ```
 
-Three things that are deliberate:
-
-- **The base install has no third-party dependencies.** Adding the tracker to a training
-  script pulls in nothing. `psutil`/`nvidia-ml-py` (system metrics) and `fastapi`/`uvicorn`
-  (the dashboard) are optional extras, imported lazily and degraded gracefully when absent.
-- **A crashed run does not report as running.** `atexit`, `sys.excepthook` and
-  SIGINT/SIGTERM handlers write a terminal state, so an interrupted run lands in
-  `interrupted` and a crashed one in `failed`. A hard `kill -9` still defeats this — there
-  is no heartbeat.
-- **Summary statistics are computed as you log**, using Welford's algorithm, so the run
-  directory is complete at every moment without a second pass over the metrics.
-
-Artifacts have typed helpers that produce exactly the payloads the dashboard renders:
+Typed helpers write artifacts the dashboard knows how to draw:
 
 ```python
 run.log_confusion_matrix(labels=[...], matrix=[[...]], accuracy=0.94)
@@ -65,88 +55,56 @@ run.log_feature_importance([{"name": "age", "importance": 0.31}])
 run.log_checkpoint("epoch_10", step=10, path="checkpoints/epoch_10.pt")
 ```
 
-## Try it
-
-`examples/quickstart.py` is a complete tracked training run in one file, and it needs
-**nothing but the standard library** — a hand-written logistic regression trained by
-gradient descent on synthetic data, which is the point rather than a shortcut: an example
-that required torch to demonstrate a dependency-free tracker would be arguing against
-itself.
+`examples/quickstart.py` is a full tracked training run (logistic regression on synthetic
+data) that only needs the standard library:
 
 ```bash
-python examples/quickstart.py     # a few seconds
+python examples/quickstart.py
 mlexp ui
 ```
 
-It logs five metrics per epoch, a confusion matrix, an ROC curve, permutation feature
-importances and three checkpoints with real weight files, prints its progress into the
-captured log, and records a provenance manifest you can immediately check with
-`mlexp verify`. The data is drawn from a known model with two deliberately uninformative
-columns, so the importance chart has a right answer to be judged against. See
-`examples/README.md` for what to look at afterwards.
+## Why not MLflow or W&B?
 
-## Log capture
+Use them if you need a model registry, a team server or hosted dashboards. This project is
+deliberately smaller and aimed at one person's runs on one machine:
 
-Every run records its own output. `stdout`, `stderr` and the `logging` root handler are
-captured into `logs.jsonl` for the life of the run — the terminal still receives every
-byte, existing logging handlers are untouched, and both are restored on every exit path
-including a crash.
+- **No dependencies in the base install.** Adding it to a training environment pulls in
+  nothing. A test enforces this by blocking third-party imports during a full run.
+  The dashboard (`fastapi`, `uvicorn`) and system metrics (`psutil`, `nvidia-ml-py`) are
+  optional extras.
+- **Plain, documented files.** A run is a folder of JSON and JSONL you can read, grep, copy
+  or delete. There's no database and no server process to keep running.
+- **Reproducibility checks are built in.** Each run records its git commit, uncommitted
+  diff, package versions and dataset hashes. `mlexp verify` tells you what has changed
+  since, and `mlexp replay` rebuilds the exact source tree.
 
-```python
-run.log_text("resolved device: cuda:0", level="info")   # the explicit half
-met.init(..., capture_output=False, capture_logging=False)  # turn the implicit halves off
-```
-
-It is on by default because a run whose output was not recorded cannot answer the first
-question anybody asks of a failure. The file is byte-capped, and reaching the cap is
-written into a final record rather than ending the log silently — a log that stops
-part-way through with no explanation reads as the end of the run.
-
-## Status
-
-**Honest summary: the tracking SDK, the storage format, the API and the CLI are done and
-tested, and the dashboard has been walked through by hand in a browser. Every panel reads
-real data from the API. Two panels are wired but have nothing behind them yet, and there is
-still no automated rendering test — see Known limitations.**
-
-| Area | State |
-|---|---|
-| Python SDK — init, log, artifacts, checkpoints, crash handling | Working |
-| Storage format, versioned as `format_version` 1.2 | Working |
-| API server, CLI (`mlexp ui / demo / ls / show / path / provenance / verify / replay`) | Working |
-| Provenance capture — commit, uncommitted diff, packages, dataset hashes, environment | Working |
-| `mlexp verify` — drift against the recorded world; `mlexp replay` — rebuild the commit | Working |
-| Log capture — `stdout`, `stderr` and `logging` into `logs.jsonl`, served by the API | Working |
-| Dashboard: experiments, runs, overview, params, metrics, logs, evaluation, system metrics, checkpoints, artifacts | Working |
-| Run comparison, ROC curve, confusion matrix, feature importance, gradient view | Working — reachable from the Evaluation, Metrics and Runs pages |
-| Continuous integration — ruff and pytest on Linux (3.10–3.12) and Windows, plus the dashboard lint and build | Working |
-
-486 tests pass, including a parity suite that pins every API payload to the responses the
-original Node backend gave, measured route by route before it was retired.
-
-### Provenance, verify and replay
-
-`met.init()` records the git commit, the **uncommitted diff** as a patch file, the resolved
-package versions, a content hash of any dataset you name, and the environment — into
-`provenance.json` beside the run. Capture never fails the training run: anything it cannot
-determine is written as a recorded reason.
+## Provenance, verify and replay
 
 ```bash
-mlexp provenance <run_id>      # what the run recorded about the world it ran in
-mlexp verify <run_id>          # what has changed since — exit 0 ok, 1 drifted, 2 unverifiable
-mlexp replay <run_id> --into ../rebuild
+mlexp provenance <run_id>                # what the run recorded
+mlexp verify <run_id>                    # exit 0 ok, 1 drifted, 2 unverifiable
+mlexp replay <run_id> --into ../rebuild  # rebuild the commit + patch in a new worktree
 ```
 
-`verify` answers in three states, not two: a check reports drift only when it asked the
-question and got a different answer, so a missing `git` binary is `unverifiable` rather than
-a false accusation. `replay` uses `git worktree add` into a directory you name — it never
-runs `checkout`, `reset` or `stash`, so your working tree is not touched.
+`verify` has three outcomes, not two. If a check can't run (say `git` isn't installed), the
+result is `unverifiable`, not drift. `replay` uses `git worktree add` and never runs
+`checkout`, `reset` or `stash`, so your working tree isn't touched.
 
-What it does **not** restore: the package set is resolved versions rather than a lockfile,
-datasets are recorded and not restored, untracked files are named and not restored, and
-hardware, driver and kernel nondeterminism are outside what any manifest can capture.
-`uncommitted.patch` is a diff of your working tree, so treat it as sensitive — pass
-`capture_diff=False` for a tree you would not paste into a chat window.
+Replay can't restore everything. Packages are recorded as resolved versions, not a
+lockfile. Datasets and untracked files are recorded but not restored. Hardware
+nondeterminism is out of scope. `uncommitted.patch` is a copy of your working-tree diff, so
+treat it as sensitive, or pass `capture_diff=False`.
+
+## Other behaviour worth knowing
+
+- **Crashed runs don't stay "running".** The context manager, `sys.excepthook`, signal
+  handlers and `atexit` all write a terminal state. `kill -9` still gets past them, since
+  there's no heartbeat.
+- **Summary stats are updated as you log** (Welford's algorithm), so a run directory is
+  complete at any point.
+- **Output is captured.** `stdout`, `stderr` and the root logger go to `logs.jsonl` while
+  the terminal still gets everything. Use `run.log_text()` for explicit lines, and
+  `capture_output=False` / `capture_logging=False` to turn capture off.
 
 ## Storage layout
 
@@ -154,105 +112,81 @@ hardware, driver and kernel nondeterminism are outside what any manifest can cap
 $EXPERIMENT_STORAGE_PATH/          # default: ~/.experiment_tracker
   <project>/
     <run_id>/
-      metadata.json                # REQUIRED — a run without this is invisible
-      summary.json                 # final state, duration, aggregated metrics
-      config.json                  # hyperparameters, flat and top-level
-      metrics.jsonl                # one JSON object per logged step
+      metadata.json                # required; a run without it is skipped
+      summary.json                 # final state, duration, metric summaries
+      config.json                  # hyperparameters
+      metrics.jsonl                # one line per step, every metric as a key
       artifacts.jsonl              # one artifact record per line
-      system_metrics.json          # array of resource samples
+      system_metrics.json          # resource samples
       checkpoints/*.json           # checkpoint sidecars
       provenance.json              # commit, packages, dataset hashes, environment
-      uncommitted.patch            # the working-tree diff — may contain secrets
-      logs.jsonl                   # captured stdout, stderr and logging, append-only
+      uncommitted.patch            # working-tree diff, may contain secrets
+      logs.jsonl                   # captured output
 ```
 
-Only `metadata.json` is required; anything else missing degrades one part of the UI rather
-than failing the request. Two properties are easy to get wrong if you write the format by
-hand:
-
-- **The server computes no aggregates.** Scalar metrics come only from `summary.json`'s
-  `metrics_summary`; per-step history comes only from `metrics.jsonl`. A writer produces
-  both. The SDK does this for you.
-- **`metrics.jsonl` is wide, not tall.** One line per step, carrying every metric observed
-  at that step as its own key. `timestamp`, `absolute_timestamp`, `step`, `run_id`,
-  `run_status`, `run_state` and `start_timestamp` are reserved; every other key is a metric
-  name.
+Only `metadata.json` is required. A missing file just leaves that part of the UI empty.
+If you write runs by hand, note that the server computes no aggregates: numbers come from
+`summary.json` and curves from `metrics.jsonl`. The format version is stored in
+`metadata.json` (currently 1.2), and every version so far has only added files.
 
 ## API
 
-Served at the same origin as the dashboard. `:id` must be a single path component —
-separators and traversal sequences are rejected with a 404.
+Served from the same origin as the dashboard. Run and experiment ids must be a single path
+component, and anything else returns 404.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/api/health` | Version, storage root, project and run counts |
-| GET | `/api/dashboard` | All experiments with aggregate stats |
-| GET | `/api/experiment/all` · `/api/experiment` · `/api/experiment/{id}` | Experiments |
-| GET | `/api/experiment/{id}/runs` | Runs with params and latest metrics |
+| GET | `/api/health` | Version, storage root, counts |
+| GET | `/api/dashboard` | All experiments with stats |
+| GET | `/api/experiment` · `/api/experiment/all` · `/api/experiment/{id}` | Experiments |
+| GET | `/api/experiment/{id}/runs` | Runs with params and final metrics |
 | GET | `/api/run` · `/api/run/{id}` | Runs |
-| GET | `/api/run/{id}/metrics` | Metrics pivoted into per-name series |
-| GET | `/api/run/{id}/metrics/timeseries?metric=` | One metric as a time series |
+| GET | `/api/run/{id}/metrics` | Metric series |
+| GET | `/api/run/{id}/metrics/timeseries?metric=` | One metric |
 | GET | `/api/run/{id}/metrics/export?format=csv\|json` | Export |
 | GET | `/api/run/{id}/system-metrics` · `/checkpoints` · `/artifacts` | Run detail |
 | GET | `/api/run/{id}/logs?level=&limit=&offset=` · `/logs/download` | Captured output |
-| GET | `/api/run/{id}/provenance` · `/patch` · `/verify` | The recorded world, and drift against it |
+| GET | `/api/run/{id}/provenance` · `/patch` · `/verify` | Provenance and drift |
 | PATCH | `/api/run/{id}/tags` · `/description` | Update a run |
-| PATCH | `/api/experiment/{id}` | Update experiment description |
+| PATCH | `/api/experiment/{id}` | Update an experiment description |
 
 ## Configuration
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `EXPERIMENT_STORAGE_PATH` | `~/.experiment_tracker` | Root of the run storage tree |
-
+`EXPERIMENT_STORAGE_PATH` sets the storage root (default `~/.experiment_tracker`).
 `mlexp ui` takes `--host`, `--port`, `--storage` and `--no-browser`.
 
-The server binds loopback on purpose. There is no authentication layer, because this is a
-single-user local tool and the trust boundary is the loopback interface rather than a login
-form. If you bind it to a network interface, add authentication first — the API has no
-authorisation checks and four endpoints write to disk.
+The server binds to localhost and has no authentication, because it's a single-user local
+tool. Don't expose it on a network without putting auth in front of it: four endpoints
+write to disk.
 
 ## Development
 
 ```bash
 pip install -e ".[all]"
-pytest tests                      # 486 tests
+pytest
 ruff check src tests examples
-python scripts/build_ui.py        # build the React app into the package
+python scripts/build_ui.py        # build the dashboard into the package
 ```
 
-The dashboard lives in `ml_frontend/` (React 19, Vite, TypeScript). For frontend work run
-`npm run dev` there alongside `mlexp ui`; Vite proxies `/api` to port 5000, so point the
-server at that port. `scripts/build_ui.py` compiles it into
-`src/mlexperimenttracker/server/static/`, which is gitignored as a build artifact and
-packaged into the wheel.
+The dashboard is in `ml_frontend/` (React 19, Vite, TypeScript, hand-written CSS). Run
+`npm run dev` there next to `mlexp ui`; Vite proxies `/api` to port 5000.
+`npm test` runs the component tests.
 
-The API began as an Express server and was ported to Python. The port was diffed against
-the running Express server route by route, key order included, with zero structural
-divergence; `tests/test_parity.py` pins those recorded payloads, so the frontend's contract
-holds without the old server in the repository.
+The API started as an Express server and was ported to Python. The port was diffed route by
+route against the old server, and `tests/test_parity.py` keeps those recorded responses, so
+the frontend's contract is still pinned now that the Express code is gone.
 
 ## Known limitations
 
-- The dashboard has no per-run or per-experiment settings page. Archiving and deleting a
-  run were never implemented, so the two pages offering them were removed rather than left
-  as buttons that do nothing.
-- There is no automated rendering test. The dashboard has been walked through by hand and
-  every payload shape it reads is checked against a running server, but nothing guards a
-  regression in what actually paints — the TypeScript build and the linter only prove the
-  code is well-formed. A navigation defect shipped past both, plus 491 tests and an
-  import-graph walk, and was caught by opening the app.
-- Two panels are wired to the API but have no data behind them. The experiment activity
-  timeline is served as a hardcoded empty list, because no event stream is recorded. The
-  gradient view only draws for runs that log `gradient/...` series themselves; the bundled
-  demo does not, so it is empty there.
-- Setting a run description also changes its display name — both derive from the same
-  `notes` field.
-- Every request walks the storage tree with no caching or pagination, so response time
-  grows with total run history.
-- Artifacts carry no file path, so nothing can be downloaded from the UI.
-- A `kill -9` still leaves a run reading as running; there is no heartbeat.
+- No archive or delete for runs.
+- The experiment activity timeline is always empty, because no event stream is recorded.
+- The gradient view only draws for runs that log `gradient/...` series.
+- A run's description and display name share one field, so editing one changes both.
+- Artifacts have no stored file path, so they can't be downloaded from the UI.
+- `kill -9` leaves a run showing as running.
+- There's no index or cache. Every dashboard request walks the run folders: about 0.16 s at
+  100 runs, 1 s at 1,000 and 2 s at 3,000 on a Windows laptop (`scripts/bench_storage.py`).
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

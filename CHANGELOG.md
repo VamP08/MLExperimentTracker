@@ -12,33 +12,38 @@ two move at different speeds. Both are listed below.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+Storage format unchanged (1.2).
+
 ### Changed
 
-- **The dashboard is redesigned.** White with one blue accent, and a dark theme in near-black
-  and blue, switched from the top bar. Colour is kept for meaning: status marks, and one hue per
-  series in charts. The sidebar is fixed and lists the archive as a tree, and only the main pane
-  scrolls, under a pinned breadcrumb bar and section menu. Every run page opens with its
-  reproducibility verdict, the check tally and the `mlexp verify` command, and the per-check
-  breakdown opens by itself when a run is not reproducible. Metric names read as they were
-  logged on every tab. The run title edits the run's description, and tags can be added and
-  removed in place. Fonts are bundled into the build, so the dashboard makes no request to a
-  font service.
-  The landing page charts the archive (runs per day by outcome, success rate per experiment,
-  run durations) and lists the latest runs, each with its training curve.
-  Each experiment's overview overlays the training curves of its newest runs on one chart,
-  ranks the runs by their final value on the chosen metric, and plots a parameter against
-  that result, one dot per run. The app has a new mark and favicon.
+- **Dashboard redesign.** White and blue with a dark theme, colour kept for status and chart
+  series. Fixed sidebar with the archive as a tree, and only the main pane scrolls. Fonts
+  are bundled, so the dashboard makes no external requests.
+- The landing page charts runs per day, success rate and run durations, and lists the
+  latest runs with their training curves.
+- Each run page opens with its reproducibility verdict and the `mlexp verify` command.
+- The experiment overview overlays the newest runs' training curves, ranks runs by their
+  final value, and plots a parameter against the result.
+- New app mark and favicon.
+- Comments and docstrings trimmed throughout.
+
+### Added
+
+- Component tests for the dashboard (`npm test`, Vitest), run in CI.
+- `scripts/bench_storage.py`, which times the storage walk at different archive sizes.
 
 ### Removed
 
-- **The retained Express implementation** (`ml_backend/`, briefly `parity_reference/`). It
-  was not part of the product and nothing at runtime used it; it was kept only so the
-  parity suite could boot it and diff its responses against the Python server. That diff
-  matched with zero structural divergence, and `tests/test_parity.py` keeps the recorded
-  payloads, so the contract the frontend depends on is still pinned. CI no longer installs
-  Node on the Python legs.
-- **The run switcher** above each run, replaced by the sidebar's run list, and the
-  `framer-motion` dependency, which nothing imports any more.
+- The old Express implementation (`parity_reference/`). The Python port matched it route
+  by route, and `tests/test_parity.py` keeps the recorded responses.
+- The run switcher above each run (the sidebar lists runs now), and `framer-motion`.
+
+### Notes
+
+- The 0.1.0 notes below say CI had never run. It has run on every push since the
+  repository went public.
 
 ## [0.1.0] — 2026-08-13
 
@@ -154,5 +159,6 @@ Stated here rather than left to be discovered:
 - `uncommitted.patch` is a diff of your working tree and should be treated as sensitive.
   Pass `capture_diff=False` for a tree you would not paste into a chat window.
 
-[Unreleased]: https://github.com/VamP08/MLExperimentTracker/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/VamP08/MLExperimentTracker/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/VamP08/MLExperimentTracker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/VamP08/MLExperimentTracker/releases/tag/v0.1.0
