@@ -33,13 +33,7 @@ function paramValue(value: unknown): string {
   return String(value);
 }
 
-/**
- * The run at a glance: every metric series, the hyperparameters, and the tail of its log.
- *
- * Nothing here is computed from the series beyond their extremes; the latest values and the
- * stats in the Metrics tab come from `summary.json`, exactly as the rest of the product reads
- * them.
- */
+/** Run at a glance: metric series, hyperparameters and log tail. Latest values come from summary.json. */
 const Overview = ({ runId, parameters, logs, logsCapped, onOpenTab }: OverviewProps) => {
   const [series, setSeries] = useState<Series[] | null>(null);
   const [error, setError] = useState<string | null>(null);

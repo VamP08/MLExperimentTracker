@@ -13,13 +13,7 @@ import { refreshDashboard, useDashboard } from "../../lib/dashboard";
 import type { DashboardExperiment } from "../../lib/dashboard";
 import "./Dashboard.css";
 
-/**
- * The state vocabulary from DATA-CONTRACT §4.2. `/api/dashboard` emits the raw on-disk
- * state in each experiment's `runs[]` and never applies this mapping, so an interrupted
- * run arrives as "interrupted" and the Archived count read zero forever (GAPS N12).
- * The mapping has to happen here: that endpoint is pinned field-by-field by the parity
- * suite against the retained Express implementation and must not change.
- */
+/** `/api/dashboard` sends raw on-disk run states, so map them to UI statuses here. */
 const STATE_TO_STATUS: Record<string, string> = {
   initialized: "running",
   running: "running",
@@ -28,11 +22,7 @@ const STATE_TO_STATUS: Record<string, string> = {
   interrupted: "archived",
 };
 
-/**
- * Anything unrecognised reads as running — including the literal "unknown" the endpoint
- * substitutes when a run has no state at all. There is deliberately no "unknown" status;
- * that is the reader's behaviour and the reason a crashed run looks alive.
- */
+/** Unknown states, including the literal "unknown" for a run with no state, read as running. */
 const uiStatus = (state: string | undefined): string =>
   (state && STATE_TO_STATUS[state]) || "running";
 
@@ -46,7 +36,7 @@ function seconds(text: unknown): number | null {
   return (h ? +h[1] * 3600 : 0) + (m ? +m[1] * 60 : 0) + (sec ? +sec[1] : 0);
 }
 
-/** How many runs the feed shows: enough to read the archive's recent history at a glance. */
+/** Number of runs in the feed. */
 const FEED = 7;
 
 interface ComparisonRow {
@@ -59,16 +49,14 @@ const crumbs = [{ label: "Dashboard" }];
 
 const Dashboard = () => {
   const { data, error } = useDashboard();
-  // The comparison endpoint carries each run's duration and final metrics, which the dashboard
-  // payload does not; one request per experiment, fetched once the list is known.
+  // The comparison endpoint has durations and final metrics the dashboard payload lacks.
+  // One request per experiment once the list is loaded.
   const [rows, setRows] = useState<Map<string, ComparisonRow[]> | null>(null);
-  // null until ExperimentSearch reports its first result. Falling back to the unfiltered
-  // list keeps the table filled on the first paint: the search reports through an effect,
-  // which runs after the browser has already painted.
+  // null until ExperimentSearch reports. Fall back to the full list so the first paint isn't
+  // empty (the search reports from an effect, after paint).
   const [filtered, setFiltered] = useState<DashboardExperiment[] | null>(null);
 
-  // Tags and runs are only as well-formed as whoever wrote metadata.json; normalise once
-  // here so nothing downstream has to defend itself.
+  // Tags and runs come from metadata.json on disk; normalise them once here.
   const experiments = useMemo(
     () =>
       (data ?? []).map((exp) => ({
@@ -124,8 +112,7 @@ const Dashboard = () => {
     );
   }
 
-  // A fresh install has no runs at all. That is not an error and not a slow load, so it
-  // gets its own screen explaining what to do (GAPS M24).
+  // Fresh install with no runs gets its own screen.
   if (experiments.length === 0) {
     return (
       <>

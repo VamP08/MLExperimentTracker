@@ -15,7 +15,7 @@ export interface FeedRun {
   experimentId: string;
   experimentName: string;
   colorIndex: number;
-  /** The experiment's headline metric, camelCased as the comparison endpoint names it. */
+  /** Headline metric, camelCased like the comparison endpoint sends it. */
   headline: string | null;
 }
 
@@ -26,7 +26,7 @@ interface Series {
 
 const LABEL: Record<string, string> = { completed: "Completed", failed: "Failed", running: "Running", archived: "Interrupted" };
 
-/** One run with its own training curve: the shape of what happened, next to where it ended. */
+/** One run with its training curve. */
 const FeedRow = ({ run }: { run: FeedRun }) => {
   const [curve, setCurve] = useState<{ name: string; values: number[] } | null | undefined>(undefined);
 
@@ -36,8 +36,8 @@ const FeedRow = ({ run }: { run: FeedRun }) => {
       .then((res) => (res.ok ? res.json() : []))
       .then((body: Series[]) => {
         if (cancelled || !Array.isArray(body)) return;
-        // The headline arrives camelCased from the comparison endpoint; the series carry the
-        // recorded names. Match through the same transform, fall back to the first series.
+        // The headline is camelCased but the series keep their logged names, so compare through
+        // the same transform. Falls back to the first series.
         const series = body.find((s) => run.headline && camelCase(s.name) === run.headline) ?? body[0];
         const values = series ? series.data.map((d) => Number(d.value)).filter(Number.isFinite) : [];
         setCurve(series ? { name: series.name, values } : null);

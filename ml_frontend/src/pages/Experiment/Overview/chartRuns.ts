@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../../../lib/api";
 import type { ExperimentRun } from "../../../components/Experiment/experiment";
 
-/**
- * How many runs the charts fetch curves for, newest first: one request per run, so an
- * experiment with hundreds of runs would otherwise fire hundreds on every visit.
- */
+/** Max runs to fetch curves for, newest first. It's one request per run. */
 export const CURVE_LIMIT = 12;
 
 interface Series {
@@ -23,8 +20,8 @@ export interface ChartRun {
 }
 
 /**
- * Curves for the newest runs plus their parameters, from the routes the run page already uses:
- * `/api/run/:id/metrics` per run and the experiment's comparison rows. Null while loading.
+ * Curves for the newest runs plus their parameters, from `/api/run/:id/metrics` and the
+ * comparison rows. Null while loading.
  */
 export function useChartRuns(experimentId: string, runs: ExperimentRun[]): ChartRun[] | null {
   const [result, setResult] = useState<ChartRun[] | null>(null);

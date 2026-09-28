@@ -1,15 +1,11 @@
 import "./EmptyState.css";
 
 interface Props {
-  /** Re-runs the dashboard fetch, so the page can be filled without a reload. */
+  /** Re-runs the dashboard fetch without a page reload. */
   onRetry: () => void;
 }
 
-/**
- * Shown when the storage directory holds no runs. This is the first screen on a fresh
- * install, so it says what the tool is reading and the two ways to put something there
- * (GAPS M24) rather than leaving an unexplained blank page.
- */
+/** Shown when the storage directory has no runs yet, with the two ways to add some. */
 const EmptyState = ({ onRetry }: Props) => {
   return (
     <section className="panel" aria-labelledby="dashboard-empty-title">

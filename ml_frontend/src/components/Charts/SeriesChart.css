@@ -15,7 +15,7 @@
   --series: var(--s1);
   --series-edge: var(--s1-edge);
 }
-/* The coloured edge on each series: the one place the spectral palette shows outside a line. */
+/* Coloured edge per series. */
 .series::before {
   content: "";
   position: absolute;

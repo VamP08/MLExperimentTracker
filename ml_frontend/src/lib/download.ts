@@ -1,11 +1,6 @@
 import { apiFetch } from "./api";
 
-/**
- * Fetch an API path and hand it to the browser as a file.
- *
- * Goes through `apiFetch` rather than an `<a href>` so the static demo can answer from its
- * snapshot too. Throws on a failed response so the caller can say what went wrong.
- */
+/** Fetch an API path and save it as a file. Uses apiFetch so the demo works too. Throws on failure. */
 export async function downloadFrom(path: string, filename: string): Promise<void> {
   const res = await apiFetch(path);
   if (!res.ok) throw new Error(`Download failed with ${res.status}`);

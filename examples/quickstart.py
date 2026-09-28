@@ -5,28 +5,9 @@ Run it, then open the dashboard:
     python examples/quickstart.py
     mlexp ui
 
-Everything here is standard library. That is the point rather than an aesthetic choice:
-the tracker's base install has no third-party dependencies, and an example that needed
-torch or scikit-learn to demonstrate that would be arguing against itself. The model is
-therefore a hand-written logistic regression trained by gradient descent on synthetic
-data — small enough to read in one sitting, real enough that every number the dashboard
-shows was measured rather than chosen.
-
-What it produces, and what to look at afterwards:
-
-* **Metrics** — `loss`, `accuracy`, `val_loss`, `val_accuracy` and `grad_norm`, one row
-  per epoch, on the run's Metrics tab.
-* **A confusion matrix** and **feature importances**, computed on the held-out split, as
-  artifacts.
-* **An ROC curve**, from the actual validation scores.
-* **Checkpoints**, with real weight files on disk beside the sidecars.
-* **Logs** — every `print` below is captured into the run, so the Logs record is the
-  script's own output rather than a summary written for it.
-* **Provenance** — the commit, the uncommitted diff, the package set and a content hash
-  of the generated dataset. Check it afterwards with `mlexp verify <run_id>`.
-
-The seed makes all of it reproducible: the same seed produces the same dataset, the same
-weights and the same final numbers, so two runs differ only where you changed something.
+Standard library only, like the tracker itself. It logs per-epoch metrics, a confusion
+matrix, ROC curve and feature importances, checkpoints, captured prints as logs, and
+provenance (check it with `mlexp verify <run_id>`). Same seed, same results.
 """
 
 from __future__ import annotations
@@ -40,9 +21,8 @@ from pathlib import Path
 
 import mlexperimenttracker as met
 
-# The generative model the synthetic data is drawn from. Four features carry signal and
-# two carry none, so the feature-importance artifact has a right answer to be checked
-# against: `noise_a` and `noise_b` should sink to the bottom of the chart.
+# Synthetic data model. `noise_a` and `noise_b` carry no signal, so they should rank last
+# in feature importance.
 FEATURES: tuple[str, ...] = (
     "tenure_months",
     "monthly_charges",
@@ -67,9 +47,7 @@ def make_dataset(rng: random.Random, count: int) -> tuple[list[list[float]], lis
     for _ in range(count):
         features = [rng.gauss(0.0, 1.0) for _ in FEATURES]
         logit = TRUE_BIAS + sum(w * x for w, x in zip(TRUE_WEIGHTS, features, strict=True))
-        # Sample the label rather than thresholding it. A deterministic label would make
-        # the problem separable and every honest metric would read 1.0, which teaches a
-        # reader of the dashboard nothing about what the charts look like on real data.
+        # Sample the label instead of thresholding, so the data isn't perfectly separable.
         labels.append(1 if rng.random() < sigmoid(logit) else 0)
         rows.append(features)
     return rows, labels
@@ -91,11 +69,7 @@ def write_csv(path: Path, rows: list[list[float]], labels: list[int]) -> None:
 
 
 def sigmoid(z: float) -> float:
-    """Overflow-free logistic function.
-
-    `1 / (1 + exp(-z))` raises OverflowError for z below about -710, which in a training
-    loop means the run dies on the one epoch where a weight got large.
-    """
+    """Logistic function that doesn't overflow for large negative z."""
     if z >= 0.0:
         return 1.0 / (1.0 + math.exp(-z))
     exp_z = math.exp(z)
@@ -114,8 +88,7 @@ def evaluate(
     correct = 0
     for features, label in zip(rows, labels, strict=True):
         p = predict(weights, bias, features)
-        # Clamped because log(0) is -inf, and a non-finite metric is dropped on the way to
-        # disk — the chart would show a gap exactly where the interesting thing happened.
+        # Clamp to avoid log(0); non-finite metrics are dropped when logged.
         p = min(max(p, 1e-12), 1.0 - 1e-12)
         total_loss += -(label * math.log(p) + (1 - label) * math.log(1.0 - p))
         correct += int((p >= 0.5) == bool(label))
@@ -144,7 +117,7 @@ def gradient(
 
 
 # --------------------------------------------------------------------------------------
-# Post-training analysis — every number below is measured on the held-out split
+# Evaluation on the held-out split
 # --------------------------------------------------------------------------------------
 
 
@@ -203,8 +176,7 @@ def roc(
             true_positive += 1
         else:
             false_positive += 1
-        # Only emit a point where the score changes, so tied scores do not become a
-        # staircase of thresholds that all mean the same decision.
+        # Only emit a point where the score changes, so ties collapse to one threshold.
         if index + 1 < len(scored) and scored[index + 1][0] == score:
             continue
         fpr.append(false_positive / negatives)
@@ -228,13 +200,9 @@ def permutation_importance(
     rng: random.Random,
     repeats: int,
 ) -> list[dict[str, float | str]]:
-    """Measure each feature by how much shuffling it costs validation accuracy.
+    """Importance = drop in validation accuracy when a feature column is shuffled.
 
-    Permutation importance rather than `abs(weight)`, because the weights of a model
-    trained on standardised-ish inputs are a proxy for importance and this is the thing
-    itself: the drop in accuracy when the column is destroyed. Repeating it gives the
-    `std` the artifact carries, which is what tells a reader whether a small importance is
-    small or merely noisy.
+    Repeated `repeats` times to get a mean and std per feature.
     """
     _, base_accuracy = evaluate(weights, bias, rows, labels)
 
@@ -257,7 +225,7 @@ def permutation_importance(
 
 
 # --------------------------------------------------------------------------------------
-# The run
+# Training run
 # --------------------------------------------------------------------------------------
 
 
@@ -304,8 +272,7 @@ def main() -> int:
         "seed": args.seed,
     }
 
-    # `with` rather than an explicit finish(), so an exception on any line below lands the
-    # run in `failed` with its traceback recorded instead of leaving it reading as running.
+    # `with` marks the run failed (with the traceback) if anything below raises.
     with met.init(
         project=args.project,
         name=f"logreg-lr{args.learning_rate}-seed{args.seed}",
@@ -350,9 +317,8 @@ def main() -> int:
                 )
 
             if epoch % 20 == 0:
-                # Real weights on disk, and a sidecar that points at them. The weights
-                # themselves are invisible to the dashboard by design — it lists only the
-                # JSON sidecars — which is exactly the arrangement a `.pt` file would be in.
+                # Save weights to disk and log a checkpoint pointing at them. The dashboard
+                # lists the checkpoint, not the weight file (same as it would for a .pt).
                 weights_path = outdir / f"epoch_{epoch:03d}.weights.json"
                 weights_path.parent.mkdir(parents=True, exist_ok=True)
                 weights_path.write_text(

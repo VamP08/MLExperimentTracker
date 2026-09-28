@@ -1,17 +1,7 @@
 """The ``mlexp`` command.
 
-The command exists to collapse an install story. Reading a run used to mean two package
-managers, three installs and two long-running processes; it now means ``pip install`` and
-``mlexp ui``. Everything here is in service of that: the subcommands are the smallest set
-that lets somebody install the package, see that data exists, look at one run, and open
-the dashboard — without reading any documentation first.
-
-``argparse`` rather than a CLI framework, because the base install has no dependencies and
-a command-line parser is not worth breaking that for.
-
-The heavy halves are imported inside the command that needs them. ``fastapi`` and
-``uvicorn`` live in an extra, the demo generator is optional, and neither should be able to
-turn ``mlexp path`` into an ImportError.
+Plain argparse to keep the base install dependency-free. Server, verify/replay and demo
+modules are imported inside their commands so a missing extra can't break ``mlexp path``.
 """
 
 from __future__ import annotations
@@ -47,23 +37,18 @@ __all__ = ["main"]
 
 PROGRAM = "mlexp"
 
-#: ``mlexp verify`` returns the verdict as a status code, so a build step can gate on it
-#: without parsing anything. ``DRIFTED`` shares 1 with the generic failure exit used by
-#: every other command; the two are told apart by where the output went — a verdict is
-#: printed to stdout, a failure is one line on stderr and nothing on stdout.
+# Exit code for each `mlexp verify` verdict. "drifted" shares 1 with generic failure; a
+# verdict prints to stdout, a failure prints one line to stderr.
 VERIFY_EXIT_CODES: dict[str, int] = {
     "reproducible": 0,
     "drifted": 1,
     "unverifiable": 2,
 }
 
-#: Loopback by default because there is no authentication anywhere in the product and
-#: three endpoints write to disk — the trust boundary is the interface, not a login form.
+# Loopback only: there is no auth and some endpoints write to disk.
 DEFAULT_HOST = "127.0.0.1"
 
-#: The port the Express backend this package replaces has always used, so existing notes,
-#: bookmarks and ``.env`` files keep pointing at the right place. Pass ``--port`` to run
-#: the two side by side while parity is still being checked.
+# Same port the old Express backend used, so existing bookmarks still work.
 DEFAULT_PORT = 5000
 
 DEFAULT_DEMO_RUNS = 12
@@ -84,9 +69,7 @@ _SERVER_EXTRA_HINT = (
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse ``argv`` and run one subcommand. Returns a process exit code.
 
-    Every expected failure returns 1 with a sentence on stderr. A traceback out of this
-    function is a bug: the user of a tracker is in the middle of something else, and a
-    stack trace from a viewer is an interruption they did not budget for.
+    Expected failures return 1 with one line on stderr; Ctrl-C returns 130.
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -268,8 +251,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cmd_path(args: argparse.Namespace) -> int:
-    """Print the root alone — no label, no banner — because the useful thing to do with
-    it is substitute it into another command. Anything else goes to stderr."""
+    """Print just the root so it can be used in other commands. Warnings go to stderr."""
     storage = Storage()
     print(storage.root)
     if not storage.root.is_dir():
@@ -285,14 +267,7 @@ def _cmd_ls(args: argparse.Namespace) -> int:
 
 
 def _list_experiments(storage: Storage) -> int:
-    """One row per experiment, with the same counters the dashboard shows.
-
-    The numbers come from the same aggregation the API serves, quirks included — a run
-    whose ``metadata.json`` is unreadable still counts toward the total, and a run in
-    ``initialized`` or ``interrupted`` falls into no state bucket. A CLI that quietly
-    computed better numbers than the dashboard would make the two impossible to compare,
-    which is the one thing this command is for.
-    """
+    """One row per experiment, using the same aggregation (and quirks) as the dashboard."""
     experiments = storage.list_experiments()
     if not experiments:
         _warn(f"no experiments under {storage.root}")
@@ -327,11 +302,10 @@ def _list_experiments(storage: Storage) -> int:
 
 
 def _list_runs(storage: Storage, project: str) -> int:
-    """One row per run directory, reading only the two small JSON files.
+    """One row per run directory.
 
-    Deliberately not :meth:`Storage.read_run`, which also parses the whole of
-    ``metrics.jsonl`` for every run — a listing that gets slower the longer you train is
-    a listing people stop using.
+    Reads only metadata and summary; :meth:`Storage.read_run` would parse all of
+    ``metrics.jsonl`` for every run.
     """
     if project not in storage.list_projects():
         return _fail(
@@ -357,14 +331,12 @@ def _list_runs(storage: Storage, project: str) -> int:
 def _run_row(storage: Storage, project: str, run_id: str) -> list[str]:
     run_dir = storage.run_path(project, run_id)
     if run_dir is None:
-        # Unaddressable on disk, and therefore a 404 on every endpoint. Say so rather
-        # than omitting the directory, because it is visibly there in the file manager.
+        # Exists on disk but 404s everywhere; list it so the user can see why.
         return [run_id, "unaddressable", "", "", ""]
 
     metadata = storage.read_json(run_dir / METADATA_FILE)
     if not isinstance(metadata, dict):
-        # The one file whose absence hides a run completely. It still inflates the
-        # experiment's run count, so it has to be listed to be explicable.
+        # Hidden from the dashboard but still in the run count, so show it here.
         return [run_id, "no metadata", "", "", ""]
 
     summary = storage.read_json(run_dir / SUMMARY_FILE)
@@ -428,18 +400,14 @@ def _cmd_show(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------------------
 # Provenance, verification and replay
 #
-# The three modules behind these commands are imported inside the handler rather than at
-# module scope. `verify` and `replay` each pull in subprocess, hashlib and platform work
-# that `mlexp path` has no use for, and a slow --help is the first thing a user meets.
+# verify/replay are imported inside the handlers to keep --help and other commands fast.
 # --------------------------------------------------------------------------------------
 
 
 def _cmd_provenance(args: argparse.Namespace) -> int:
-    """Print the manifest, or hand the patch to another program.
+    """Print the manifest, or with ``--patch`` write the raw patch bytes to stdout.
 
-    ``--patch`` writes the bytes to stdout unaltered — no trailing newline added, no
-    re-encoding — because the only useful thing to do with it is pipe it into ``git apply``,
-    and a patch that has been through a text handle is a patch that no longer applies.
+    The patch is written unaltered so it still applies with ``git apply``.
     """
     storage = Storage()
     located = _locate(storage, args.run_id)
@@ -515,11 +483,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_replay(args: argparse.Namespace) -> int:
-    """Print the plan, or build the worktree.
+    """Print the replay plan, or build the worktree in the ``--into`` directory.
 
-    ``--into`` is the only flag that writes anything, and it is spelled as a directory the
-    user names rather than defaulted to one this command invents: a command that creates a
-    checkout somewhere of its own choosing is a command people run once.
+    ``--into`` is the only flag that writes, and it has no default.
     """
     storage = Storage()
     located = _locate(storage, args.run_id)
@@ -542,8 +508,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
             storage, project, run_id, target, apply_patch=not args.no_patch
         )
     except module.ReplayError as exc:
-        # Every one of these is raised before anything is written, so "nothing happened"
-        # is a promise the message can make.
+        # ReplayError is always raised before anything is written.
         return _fail(f"{exc}\n\nNothing was created and no repository was modified.")
 
     _print_plan(plan.to_dict(), materialised=target)
@@ -551,7 +516,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
 
 
 def _write_script(storage: Storage, destination: str | None, plan: Any) -> int:
-    """Write the shell transcript, through :class:`Storage` like every other write here."""
+    """Write the plan as a shell script via :class:`Storage`, if a path was given."""
     if destination is None:
         return 0
     path = Path(destination).expanduser()
@@ -566,12 +531,7 @@ def _write_script(storage: Storage, destination: str | None, plan: Any) -> int:
 
 
 def _cmd_demo(args: argparse.Namespace) -> int:
-    """Generate demo data.
-
-    Imported here rather than at module scope for two reasons: a training script that
-    imports the SDK should not pay for a data generator it will never call, and the
-    generator is optional enough that its absence must not break ``mlexp path``.
-    """
+    """Generate demo data. The generator is optional, so it's imported lazily."""
     if args.runs < 1:
         return _fail("--runs must be at least 1")
 
@@ -595,17 +555,12 @@ def _cmd_demo(args: argparse.Namespace) -> int:
 def _cmd_ui(args: argparse.Namespace) -> int:
     """Serve the dashboard.
 
-    ``--storage`` is applied by setting the environment variable rather than by threading
-    a path through the application factory. That is the variable both halves of the
-    product already resolve, so one mechanism configures the server, anything it imports,
-    and any SDK call made in the same process — and there is only one answer to "where is
-    the data" to get wrong.
+    ``--storage`` sets the env var, so the server and any SDK call in-process agree.
     """
     if args.storage:
         os.environ[STORAGE_ENV_VAR] = str(Path(args.storage).expanduser())
 
-    # find_spec rather than an import, so that "not installed" is reported before any of
-    # the server's own import side effects can fail for an unrelated reason.
+    # find_spec so "not installed" is reported before import side effects can fail.
     missing = [name for name in ("fastapi", "uvicorn") if importlib.util.find_spec(name) is None]
     if missing:
         return _fail(f"{', '.join(missing)} not installed.\n\n{_SERVER_EXTRA_HINT}")
@@ -622,18 +577,14 @@ def _cmd_ui(args: argparse.Namespace) -> int:
             "Reinstall the package."
         )
     except ImportError as exc:
-        # Present but unusable — a partial install, a broken compiled extension, or a
-        # machine policy blocking one. Worth its own message: reinstalling the extra is
-        # the fix for the first and useless for the rest.
+        # Installed but broken (partial install, bad compiled extension, policy block).
         return _fail(f"the server extra is installed but will not import: {exc}")
 
     storage = Storage()
     url = f"http://{_display_host(args.host)}:{args.port}"
 
-    # The Express server prints its own resolved root at startup for the same reason: the
-    # commonest confusion in this product is two halves pointed at two different roots.
-    # Flushed, because stdout is block-buffered when captured while uvicorn logs to an
-    # unbuffered stderr — without this the banner lands after the lines it introduces.
+    # Show the storage root: the usual mix-up is writer and server on different roots.
+    # Flush so the banner prints before uvicorn's (unbuffered stderr) logs.
     print(f"{PROGRAM} {_version()}")
     print(f"  storage   {storage.root}")
     print(f"  dashboard {url}")
@@ -658,12 +609,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
 
 
 def _load_app() -> Any:
-    """Build the ASGI application.
-
-    The factory is looked up by name and handed the storage root only if it asks for one,
-    because the environment variable set by ``--storage`` already answers that question
-    for anything the server constructs.
-    """
+    """Build the ASGI app from ``create_app`` (or a module-level ``app``)."""
     module = importlib.import_module(f"{__package__}.server.app")
     factory = getattr(module, "create_app", None)
     if factory is None:
@@ -679,12 +625,7 @@ def _load_app() -> Any:
 
 
 def _load_optional(name: str) -> Any | None:
-    """Import one of this package's own optional modules, or ``None``.
-
-    ``verify`` and ``replay`` are part of the base install and their absence means a
-    partial or vendored installation rather than a missing extra — but a viewer that
-    tracebacks on that is still a viewer that tracebacks.
-    """
+    """Import one of this package's modules, or ``None`` (e.g. a partial install)."""
     try:
         return importlib.import_module(name)
     except ImportError:
@@ -692,9 +633,7 @@ def _load_optional(name: str) -> Any | None:
 
 
 def _load_demo_generator() -> Callable[..., Any] | None:
-    """Resolve ``mlexperimenttracker.demo.generate`` whether it is a function on the
-    package or a module inside it. The generator is being written alongside this file and
-    either shape is a reasonable thing to have chosen."""
+    """Find ``demo.generate``, whether it's a function or a submodule."""
     try:
         module = importlib.import_module(f"{__package__}.demo")
     except ModuleNotFoundError:
@@ -707,12 +646,7 @@ def _load_demo_generator() -> Callable[..., Any] | None:
 
 
 def _call_with_supported_kwargs(func: Callable[..., Any], **candidates: Any) -> Any:
-    """Call ``func`` with only the keyword arguments it actually declares.
-
-    Lets this module stay agnostic about whether a collaborator's function takes a
-    ``Storage``, a root path or neither, without pinning either side to a signature that
-    would then be awkward to change.
-    """
+    """Call ``func`` with only the keyword arguments it declares."""
     try:
         parameters = inspect.signature(func).parameters
     except (TypeError, ValueError):
@@ -770,13 +704,9 @@ def _print_config(config: dict) -> None:
 
 
 def _print_metrics(metrics_summary: Any) -> None:
-    """The final metrics, read from ``summary.json`` and never derived here.
+    """Final metrics from ``summary.json``, never recomputed from ``metrics.jsonl``.
 
-    Nothing in this product computes an aggregate from ``metrics.jsonl`` — the writer
-    records every metric twice, per step and pre-aggregated — so a metric with a chart but
-    no number here is a writer bug, and computing the number in this command would hide
-    exactly that. The two ways an entry can be silently invisible in the dashboard get a
-    note under the table rather than a wide cell inside it.
+    Entries the dashboard would silently hide get a note under the table.
     """
     print()
     if not isinstance(metrics_summary, dict) or not metrics_summary:
@@ -812,12 +742,7 @@ def _print_metrics(metrics_summary: Any) -> None:
 
 
 def _print_provenance(project: str, run_id: str, manifest: dict) -> None:
-    """The manifest as a page, with the two fields that decide reproducibility first.
-
-    Ordered by what a reader is looking for rather than by the order of the file: the
-    commit and whether the tree was dirty answer "can I get this code back", and
-    everything below is context on the answer.
-    """
+    """Print the manifest, git commit and dirty state first."""
     git = _mapping(manifest.get("git"))
     _print_fields(
         [
@@ -924,12 +849,7 @@ def _hardware_label(hardware: dict) -> str:
 
 
 def _print_report(report: dict) -> None:
-    """The verdict, the checks, and then every check that is not ``ok`` in full.
-
-    A drifted verdict with no expansion is an accusation without evidence, so the second
-    half prints both sides of every difference. ``unknown`` gets the same treatment for the
-    opposite reason: the useful information there is which question went unanswered.
-    """
+    """Print the verdict, the check table, then details for every non-``ok`` check."""
     summary = _mapping(report.get("summary"))
     checks = report.get("checks") if isinstance(report.get("checks"), list) else []
     verdict = str(report.get("verdict") or "unverifiable")
@@ -970,12 +890,7 @@ def _print_report(report: dict) -> None:
 
 
 def _print_plan(plan: dict, materialised: Path | None) -> None:
-    """The steps, then the caveats — never the caveats folded into the steps.
-
-    A warning printed inside a numbered list reads as an instruction, and the warnings
-    here are the opposite of instructions: they are the parts of the run this plan cannot
-    put back.
-    """
+    """Print the steps, then the warnings separately so they don't read as steps."""
     steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
     warnings = plan.get("warnings") if isinstance(plan.get("warnings"), list) else []
 
@@ -1020,17 +935,12 @@ def _print_plan(plan: dict, materialised: Path | None) -> None:
 
 
 def _cell(entry: dict, key: str) -> str:
-    """Absent and ``null`` are different things in a stats table: absent is a stat the
-    writer did not record, ``null`` is one it recorded as nothing."""
+    """Blank for a missing key, ``null`` for an explicit null."""
     return _scalar(entry[key]) if key in entry else ""
 
 
 def _scalar(value: Any) -> str:
-    """Render a JSON scalar the way it sits on disk, minus the quotes on strings.
-
-    ``true``/``false``/``null`` rather than ``True``/``False``/``None``: the file is JSON,
-    and somebody comparing this output against the file should not have to translate.
-    """
+    """Render a value as JSON (``true``/``null``), but strings without quotes."""
     if isinstance(value, str):
         return value
     try:
@@ -1040,10 +950,9 @@ def _scalar(value: Any) -> str:
 
 
 def _state_label(state: Any) -> str:
-    """The state as written, plus what the dashboard makes of it when the two differ.
+    """The raw state, plus the dashboard's mapping when it differs.
 
-    Every unrecognised value maps to ``running``, so a typo produces a run that reads as
-    alive forever. Showing both columns is the cheapest way to catch that.
+    Unknown states map to ``running``, so this makes typos visible.
     """
     if not isinstance(state, str) or not state:
         return "(unset -> running)"
@@ -1052,12 +961,7 @@ def _state_label(state: Any) -> str:
 
 
 def _duration_label(duration: Any) -> str:
-    """Seconds, formatted the way the UI formats them.
-
-    ``duration`` must be a JSON number of seconds; the reader renders anything else as
-    ``0s``, so an ISO-8601 duration or a stringified ``timedelta`` looks like an instant
-    run rather than like a mistake. Say which it was.
-    """
+    """Seconds formatted like the UI. Non-numbers show as ``0s`` plus the bad value."""
     if duration is None:
         return "0s"
     if isinstance(duration, bool) or not isinstance(duration, (int, float)):
@@ -1066,8 +970,7 @@ def _duration_label(duration: Any) -> str:
 
 
 def _short_time(value: Any) -> str:
-    """Trim an ISO timestamp to minutes. The seconds are in the file; nobody scans a
-    listing for them."""
+    """Trim an ISO timestamp to minutes."""
     if not isinstance(value, str) or not value:
         return ""
     if value == "N/A":
@@ -1082,31 +985,19 @@ def _count(quantity: int, noun: str) -> str:
 
 
 def _command_line(parts: Sequence[str]) -> str:
-    """Render an argument list so it can be pasted back into *this* shell.
-
-    ``ReplayPlan.as_script`` emits POSIX quoting because it emits a ``/bin/sh`` script;
-    what is printed to a terminal has to match the terminal it is printed to, and a
-    Windows path quoted the POSIX way is a path that does not exist.
-    """
+    """Quote an argument list for the current platform's shell (cmd on Windows)."""
     if os.name == "nt":
         return subprocess.list2cmdline(list(parts))
     return " ".join(shlex.quote(part) for part in parts)
 
 
 def _mapping(value: Any) -> dict:
-    """A dict or an empty one. Every field in ``provenance.json`` is optional and the file
-    is written by a capture path that degrades rather than failing, so a block being absent
-    or the wrong shape is an expected state and not a reason to stop rendering."""
+    """``value`` if it's a dict, else ``{}``. Provenance fields are all optional."""
     return value if isinstance(value, dict) else {}
 
 
 def _locate(storage: Storage, run_id: str) -> tuple[str, str] | None:
-    """Resolve a run ID to ``(project, run_id)``, reporting the miss on stderr.
-
-    Run IDs are unique across experiments in this format, so a command takes one and
-    finds the experiment itself — the alternative is making the user name a directory
-    they have no reason to know.
-    """
+    """Resolve a run ID to ``(project, run_id)``, or warn on stderr and return ``None``."""
     located = storage.find_run(run_id)
     if located is None:
         _warn(
@@ -1129,10 +1020,9 @@ def _display_host(host: str) -> str:
 
 
 def _open_browser_shortly(url: str) -> None:
-    """Open the browser from a timer, after uvicorn has had a moment to bind.
+    """Open the browser after a short delay so uvicorn can bind first.
 
-    A daemon thread so that a failure to start the server does not leave the process
-    alive waiting to open a tab at it.
+    Daemon timer, so a server that fails to start doesn't keep the process alive.
     """
     timer = threading.Timer(1.0, _open_browser, args=(url,))
     timer.daemon = True
@@ -1140,8 +1030,7 @@ def _open_browser_shortly(url: str) -> None:
 
 
 def _open_browser(url: str) -> None:
-    # A headless machine has no browser to open, and that is not a reason to stop serving
-    # the dashboard to whatever is going to connect to it over an SSH tunnel instead.
+    # No browser on a headless box is fine; keep serving (e.g. over an SSH tunnel).
     with contextlib.suppress(Exception):
         webbrowser.open(url)
 

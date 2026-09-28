@@ -2,7 +2,7 @@
   white-space: nowrap;
 }
 
-/* Type is a label, not a state, so it stays achromatic. */
+/* Type is a label, not a state, so no colour. */
 .artifacts-type {
   display: inline-flex;
   align-items: center;

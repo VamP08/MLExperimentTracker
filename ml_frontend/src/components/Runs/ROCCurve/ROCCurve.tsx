@@ -36,7 +36,6 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
       const response = await apiFetch(`/api/run/${runId}/artifacts`);
 
       if (!response.ok) {
@@ -49,7 +48,7 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
         : [];
 
       // One artifact line per class; `className` labels each curve.
-      // A run with no ROC artifact is the ordinary case, not a failure.
+      // No ROC artifact is normal, not an error.
       setCurves(
         records
           .filter((art) => art.type === 'roc_curve' || art.type === 'roc_auc')
@@ -86,8 +85,7 @@ const ROCCurve: React.FC<Props> = ({ runId }) => {
     return shell(<div className="state error">Could not load ROC curves: {error}</div>);
   }
 
-  // Nothing to draw is not an error and not worth a card of its own; the
-  // Evaluation tab says once, quietly, when a run logged no evaluation artifacts.
+  // Nothing to draw. The Evaluation tab shows the empty message.
   if (curves.length === 0) {
     return null;
   }

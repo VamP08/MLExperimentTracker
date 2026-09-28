@@ -1,9 +1,5 @@
-/*
- * The demo notice sits above the shell in normal flow, so it pushes the rail and the page
- * down rather than covering anything. Dismissing it collapses the row to zero height first
- * (grid-template-rows 1fr -> 0fr, which animates where `height: auto` cannot) and the
- * component unmounts when that is done, so the page slides up instead of jumping.
- */
+/* Demo notice above the shell. On dismiss the row collapses (grid rows 1fr -> 0fr, which
+   animates where height: auto can't), then the component unmounts. */
 .demo-banner {
   display: grid;
   grid-template-rows: 1fr;
@@ -22,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  /* Required for the 0fr collapse to actually clip the content. */
+  /* Needed for the 0fr collapse to clip. */
   overflow: hidden;
   min-height: 0;
   padding: 0 12px 0 20px;

@@ -259,7 +259,7 @@
   }
 }
 
-/* One row on a desktop, as the summary is meant to read; it wraps only on a narrow screen. */
+/* One row on desktop, wraps on narrow screens. */
 @media (min-width: 1100px) {
   .repro-bar {
     flex-wrap: nowrap;
@@ -276,7 +276,7 @@
   }
 }
 
-/* Prose in a data cell: the body face, in the drift colour, so it reads as the finding. */
+/* Prose in a data cell: body font, drift colour. */
 .rc-prose {
   font-family: var(--sans);
   font-size: 14px;

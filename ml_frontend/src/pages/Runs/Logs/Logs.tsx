@@ -6,11 +6,8 @@ import { apiFetch, IS_DEMO } from '../../../lib/api';
 import { downloadFrom } from '../../../lib/download';
 
 /**
- * A record of `logs.jsonl` as the API hands it back (DATA-CONTRACT §3.11).
- *
- * `timestamp` is seconds since the run started — the same clock `metrics.jsonl` uses, so a
- * log line and a metric point at 74.1 are the same instant. `absolute_timestamp` is the
- * wall clock, kept for the hover title of the elapsed column.
+ * One `logs.jsonl` record as the API returns it. `timestamp` is seconds since run start (same
+ * clock as metrics.jsonl); `absolute_timestamp` is wall clock, used for the hover title.
  */
 interface LogRecord {
   timestamp: number;
@@ -25,18 +22,12 @@ interface Props {
 }
 
 /**
- * The closed level vocabulary, in severity order (§3.11). The order is a display choice
- * only: the server filters on one level exactly and asserts no hierarchy, so the filter
- * says "Info only" rather than "Info and above" — a control that claimed to rank these
- * would be the UI inventing an ordering the format never recorded.
+ * Closed level vocabulary. The server filters on one exact level, so the filter says
+ * "Info only", not "and above".
  */
 const LEVELS = ['debug', 'info', 'warning', 'error', 'critical'] as const;
 
-/**
- * Rows per request. A run's log is the largest thing the API can return — 8 MiB at the
- * default budget, tens of thousands of lines — so the tab asks for a page at a time rather
- * than rendering the whole file into the DOM at once.
- */
+/** Rows per request. A log can be tens of thousands of lines, so page it. */
 const PAGE_SIZE = 500;
 
 const DEMO_DOWNLOAD_NOTE =
@@ -49,18 +40,13 @@ const Logs = ({ runId }: Props) => {
   const [loading, setLoading] = useState(true);
   const [paging, setPaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Kept apart from `error`, which replaces the whole tab. A failed page turn must not
-  // throw away the page the user is already reading — it belongs in the pager, next to
-  // the button that failed, with the records still on screen.
+  // Separate from `error` (which replaces the tab) so a failed page turn keeps the current rows.
   const [pageError, setPageError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
-  // Whether the last page came back full. The endpoint returns a bare array with no total,
-  // so a full page is the only evidence there may be more — the pager offers "Next" on
-  // that evidence and never shows a page count derived from a number nobody sent.
+  // No total from the endpoint, so a full page is the only hint there may be more.
   const [mayHaveMore, setMayHaveMore] = useState(false);
 
-  // Guards against an out-of-order response overwriting a newer one when the run or the
-  // filter changes while a request is still in flight.
+  // Ignore out-of-order responses when the run or filter changes mid-request.
   const requestRef = useRef(0);
 
   const fetchPage = useCallback(
@@ -115,8 +101,7 @@ const Logs = ({ runId }: Props) => {
       const page = await fetchPage(from, level);
       if (ticket !== requestRef.current) return;
       if (page.length === 0 && from > 0) {
-        // The page on screen was full and also the last one: stay on it rather than turn
-        // to an empty page, and stop offering a next one.
+        // Last page was full but nothing follows it: stay put and stop offering Next.
         setMayHaveMore(false);
         return;
       }
@@ -126,7 +111,7 @@ const Logs = ({ runId }: Props) => {
       document.getElementById('logs-title')?.scrollIntoView({ block: 'nearest' });
     } catch (err) {
       if (ticket !== requestRef.current) return;
-      // The buttons stay: this is a retry, not a dead end.
+      // Keep the buttons so the user can retry.
       setPageError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       if (ticket === requestRef.current) setPaging(false);
@@ -143,10 +128,8 @@ const Logs = ({ runId }: Props) => {
     }
   };
 
-  // An unfiltered empty result is the ordinary state of every run recorded before format
-  // 1.2 and of every run that turned capture off. It gets the whole panel with no filter
-  // and no download control, because there is nothing to filter and nothing to download —
-  // and it must read as a fact about the run, not as a failure of the page.
+  // No logs is normal for runs before format 1.2 or with capture off. Show a plain
+  // message, no filter or download.
   const nothingCaptured = !loading && !error && level === 'all' && offset === 0 && entries.length === 0;
   const seen = offset + entries.length;
   const showControls = !loading && !error && !nothingCaptured;
@@ -181,10 +164,7 @@ const Logs = ({ runId }: Props) => {
                   </option>
                 ))}
               </select>
-              {/* The file is streamed off disk as an attachment, so the static demo has
-                  nothing to serve it from. Rather than offer a control that fails, the demo
-                  shows it disabled and says why. aria-disabled rather than disabled so the
-                  explanation stays reachable by hover and keyboard. */}
+              {/* Streamed from disk, so the demo shows it disabled. aria-disabled keeps the title reachable. */}
               <button
                 type="button"
                 className="btn logs-download"
@@ -244,9 +224,7 @@ const Logs = ({ runId }: Props) => {
                       <td>
                         <span className={`src src-${String(entry.source ?? '')}`}>{String(entry.source ?? '')}</span>
                       </td>
-                      {/* Keeps the newlines: a traceback is one record with line breaks in it
-                          (DATA-CONTRACT §3.11), and collapsing them would make the one thing
-                          people open this tab for unreadable. */}
+                      {/* Keep newlines; a traceback is one multi-line record. */}
                       <td className="mono logs-message">{String(entry.message ?? '')}</td>
                     </tr>
                   ))}
@@ -296,7 +274,7 @@ const formatElapsed = (seconds: number): string => {
   return `+${Math.max(0, seconds).toFixed(3)}`;
 };
 
-/** Wall clock for the hover title, or nothing at all rather than an invented date. */
+/** Wall clock for the hover title, or nothing. */
 const formatAbsolute = (epochSeconds: number): string | undefined => {
   if (typeof epochSeconds !== 'number' || !Number.isFinite(epochSeconds)) return undefined;
   const date = new Date(epochSeconds * 1000);
@@ -304,11 +282,7 @@ const formatAbsolute = (epochSeconds: number): string | undefined => {
   return date.toLocaleString();
 };
 
-/**
- * The colour class for a level. A value outside the closed vocabulary is styled neutrally
- * and still shown verbatim: filing an unknown level under `info` would be the page
- * asserting something about a record it does not understand.
- */
+/** Colour class for a level. Unknown levels get a neutral style and are shown as-is. */
 const levelClass = (level: string): string => {
   const name = typeof level === 'string' ? level.trim().toLowerCase() : '';
   return (LEVELS as readonly string[]).includes(name) ? name : 'unknown';

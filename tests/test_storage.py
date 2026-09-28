@@ -1,10 +1,7 @@
-"""Tests for the on-disk contract.
+"""Storage tests against the shapes the dashboard consumes.
 
-The assertions are written against the shapes the existing dashboard consumes, not
-against what a clean design would produce — several of them pin behaviour that is known
-to be wrong (two config readers that disagree, two duration formatters, a run named one
-thing on one page and another elsewhere). Those tests exist so that fixing the reader is
-a deliberate act with a failing test attached, rather than an accident.
+Some pin known quirks (two config readers that disagree, two duration formatters, a run
+named differently on two pages) so changing the reader breaks a test on purpose.
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ from mlexperimenttracker.contract import camel_case, format_duration, map_state
 from mlexperimenttracker.storage import Storage, StorageError
 
 # --------------------------------------------------------------------------------------
-# Fixtures — the worked example from the data contract, as a real directory tree
+# Fixtures: one example run as a real directory tree
 # --------------------------------------------------------------------------------------
 
 PROJECT = "churn-mlp"
@@ -127,8 +124,7 @@ def populated(storage: Storage) -> Storage:
 # Containment
 # --------------------------------------------------------------------------------------
 
-# Every payload here reached a real path join in the reader before the containment fix.
-# The %2f and %5c forms are shown decoded, which is how Express delivers them.
+# %2f and %5c are shown decoded, as they arrive after URL decoding.
 TRAVERSAL_SEGMENTS = [
     "",
     ".",
@@ -170,8 +166,7 @@ def test_resolve_within_accepts_ordinary_names(storage: Storage) -> None:
 
 
 def test_reads_degrade_for_unaddressable_names(populated: Storage) -> None:
-    """A refused name must look like "not found", never like an error and never like a
-    read of whatever the escape pointed at."""
+    """A refused name reads as "not found", not an error."""
     escape = ".." + "/" + ".."
     assert populated.read_run(escape, RUN_ID) is None
     assert populated.read_experiment(escape) is None
@@ -263,8 +258,7 @@ def test_run_written_by_the_writer_reads_back(storage: Storage) -> None:
     assert run["createdAt"] == run["startTime"] == METADATA["created_at"]
     assert run["endTime"] == SUMMARY["end_time"]
     assert run["tags"] == ["baseline", "churn", "mlp"]
-    # notes is empty in both files, so the display name falls through to the run id —
-    # metadata.name is deliberately not consulted on this path.
+    # notes is empty, so the name falls back to the run id. metadata.name is not used here.
     assert run["name"] == f"Run {RUN_ID}"
     assert run["description"] == ""
     assert run["pythonVersion"] == "3.13.2"
@@ -278,8 +272,7 @@ def test_run_written_by_the_writer_reads_back(storage: Storage) -> None:
 
 
 def test_run_object_key_set_is_frozen(populated: Storage) -> None:
-    """The frontend consumes these keys unchanged; adding or renaming one is a breaking
-    change, so the whole set is pinned rather than sampled."""
+    """The frontend uses these keys as-is, so the full set is pinned."""
     run = populated.read_run(PROJECT, RUN_ID)
     assert run is not None
     assert sorted(run) == sorted(
@@ -318,7 +311,7 @@ def test_a_run_without_metadata_is_invisible(storage: Storage) -> None:
     write_json(run_dir / contract.SUMMARY_FILE, SUMMARY)
     assert storage.read_run(PROJECT, RUN_ID) is None
     assert storage.read_experiment_runs(PROJECT) == []
-    # ...and yet it still counts as a run, which is what depresses the success rate.
+    # But it still counts toward totalRuns, lowering the success rate.
     assert storage.read_experiment(PROJECT)["stats"]["totalRuns"] == 1
 
 
@@ -335,7 +328,7 @@ def test_malformed_files_degrade_rather_than_raise(storage: Storage) -> None:
     assert run["parameters"] == {}
     assert run["duration"] == 0
     assert run["durationFormatted"] == "0s"
-    # No summary means no state, and there is no "unknown" — it reads as running.
+    # No summary means no state, which reads as running.
     assert run["status"] == "running"
     assert storage.read_system_metrics(PROJECT, RUN_ID) == {}
     assert storage.read_json(run_dir / contract.SUMMARY_FILE) is None
@@ -355,11 +348,11 @@ def test_metrics_summary_flattens_into_sibling_keys(storage: Storage) -> None:
         {
             "metrics_summary": {
                 "val_loss": {"latest": 0.88, "mean": 1.10, "max": 1.40, "min": 0.88, "stddev": 0.21},
-                # No `latest`: contributes its stats but never appears as a metric.
+                # No `latest`: only its stats show up.
                 "orphan": {"mean": 1.0},
-                # A bare number is the obvious naive shape and yields nothing at all.
+                # A bare number yields nothing.
                 "naive": 0.31,
-                # Only four stat names are recognised; std/var/count are dropped.
+                # Only the four stat names are read; std/var/count are dropped.
                 "extra": {"latest": 1.0, "std": 9.0, "var": 9.0, "count": 6},
             }
         },
@@ -374,13 +367,15 @@ def test_metrics_summary_flattens_into_sibling_keys(storage: Storage) -> None:
         "orphanMean": 1.0,
         "extra": 1.0,
     }
-    # The experiment view of the same file is deliberately narrower: latest only.
+    # The experiment view shows latest only.
     assert storage.read_experiment_runs(PROJECT)[0]["metrics"] == {"valLoss": 0.88, "extra": 1.0}
 
 
 def test_a_metric_named_like_a_stat_collides(storage: Storage) -> None:
-    """`loss_mean` and the derived mean of `loss` land on the same key; last write wins.
-    This is why the SDK must refuse metric names ending in a stat suffix."""
+    """loss_mean and the mean of loss map to the same key; last write wins.
+
+    Hence the SDK warning on metric names ending in a stat suffix.
+    """
     run_dir = storage.root / PROJECT / RUN_ID
     write_json(run_dir / contract.METADATA_FILE, METADATA)
     write_json(
@@ -399,9 +394,8 @@ def test_wide_rows_pivot_into_one_series_per_metric(populated: Storage) -> None:
     series = {s["name"]: s["data"] for s in populated.read_metrics(PROJECT, RUN_ID)}
     assert set(series) == {"loss", "accuracy", "val_loss", "val_accuracy"}
     assert len(series["loss"]) == 3
-    # Sparse logging: the validation metrics appear on one step only.
+    # Sparse: val metrics are on one step only.
     assert series["val_loss"] == [{"step": 391, "value": 1.4022, "timestamp": 74.1}]
-    # Reserved keys are row metadata, never series.
     for reserved in contract.RESERVED_METRIC_KEYS:
         assert reserved not in series
 
@@ -421,8 +415,7 @@ def test_a_torn_final_line_costs_one_step_not_the_file(storage: Storage) -> None
         handle.write('{"step": 999, "loss": 0.1')
     assert storage.read_jsonl(path) == METRIC_ROWS
 
-    # Blank lines are skipped, and a line that is valid JSON but not an object is not a
-    # record — the reader keeps those and they become nonsense chart series.
+    # Skip blank lines and valid JSON that is not an object.
     with open(path, "a", encoding="utf-8", newline="\n") as handle:
         handle.write('\n\n"a string"\n[1, 2]\n{"step": 7}\n')
     assert storage.read_jsonl(path) == METRIC_ROWS + [{"step": 7}]
@@ -439,8 +432,7 @@ def test_append_jsonl_writes_one_line_per_record(storage: Storage) -> None:
 
 
 def test_non_finite_values_are_refused_rather_than_written(storage: Storage) -> None:
-    """`NaN` and `Infinity` are not JSON. The reader drops the line silently, so a
-    training run with one diverged step would lose it without telling anyone."""
+    """NaN/Infinity are not JSON; the reader would silently drop the whole line."""
     path = storage.root / PROJECT / RUN_ID / contract.METRICS_FILE
     with pytest.raises(StorageError):
         storage.append_jsonl(path, {"step": 1, "loss": float("nan")})
@@ -454,9 +446,7 @@ def test_non_finite_values_are_refused_rather_than_written(storage: Storage) -> 
 
 
 def test_the_two_config_readers_disagree(storage: Storage) -> None:
-    """One flattens a level, the other drops nesting entirely. The frontend depends on
-    both, so this is pinned as behaviour — unifying them changes the comparison table.
-    """
+    """One flattens one level, the other drops nesting. Pinned: the frontend uses both."""
     run_dir = storage.root / PROJECT / RUN_ID
     write_json(run_dir / contract.METADATA_FILE, METADATA)
     write_json(
@@ -476,13 +466,12 @@ def test_the_two_config_readers_disagree(storage: Storage) -> None:
     assert detail == {
         "learningRate": 0.0003,
         "earlyStopping": None,
-        # One level of flattening; `encoder` is depth two and vanishes.
+        # One level only; `encoder` is dropped.
         "modelType": "mlp",
-        # An array is an object, so it flattens by numeric index.
+        # Arrays flatten by index.
         "layers0": "a",
         "layers1": "b",
-        # Object-valued storage/system/logging are dropped, but a *scalar* `system`
-        # survives, because the drop list is only consulted for objects.
+        # storage/system/logging are dropped only when they are objects.
         "system": "linux",
     }
 
@@ -527,15 +516,13 @@ def test_experiment_aggregation(storage: Storage) -> None:
         "totalRuns": 3,
         "completedRuns": 1,
         "failedRuns": 1,
-        # `interrupted` falls into no bucket at all: the counters test summary.state
-        # against three literals and never map it.
+        # `interrupted` is in no bucket; the counters don't map state.
         "runningRuns": 0,
         "successRate": "33%",
         "avgDuration": "1m 20s",
         "lastRun": "2026-08-12T10:00:00.000Z",
     }
-    # The dashboard emits the raw state here, so an interrupted run never reads as
-    # archived on this path...
+    # Raw state here, so interrupted is not shown as archived...
     assert {r["_id"]: r["status"] for r in experiment["runs"]} == {
         "run_1": "completed",
         "run_2": "failed",
@@ -547,10 +534,10 @@ def test_experiment_aggregation(storage: Storage) -> None:
         "run_2": "failed",
         "run_3": "archived",
     }
-    # The same run is named two different things on the two pages.
+    # Same run, different names on the two pages.
     assert experiment["runs"][0]["name"] == "named-run_1"
     assert storage.read_experiment_runs(PROJECT)[0]["name"] == "Run run_1"
-    # And duration is a formatted string here, where the run detail path emits a number.
+    # Duration is a string here but a number on the run detail path.
     assert storage.read_experiment_runs(PROJECT)[0]["duration"] == "1m 0s"
 
     assert storage.read_experiment("absent") is None
@@ -571,10 +558,10 @@ def test_experiment_description_comes_from_the_first_run_with_notes(storage: Sto
 
 
 def test_a_run_without_created_at_does_not_poison_the_aggregate(storage: Storage) -> None:
-    """Verified against the reader: when the first run in a project has no ``created_at``,
-    its Invalid Date becomes the project's last-activity value and formatting it throws a
-    RangeError — a 500 for the whole dashboard, from one run missing one field. The run
-    is skipped here instead, so the remaining runs still date the project."""
+    """A run with no created_at is skipped when dating the project.
+
+    Otherwise its Invalid Date throws a RangeError and 500s the whole dashboard.
+    """
     write_json(storage.root / PROJECT / "aaa_no_date" / contract.METADATA_FILE, {"state": "running"})
     write_json(
         storage.root / PROJECT / "bbb_dated" / contract.METADATA_FILE,
@@ -583,7 +570,7 @@ def test_a_run_without_created_at_does_not_poison_the_aggregate(storage: Storage
     experiment = storage.read_experiment(PROJECT)
     assert experiment["stats"]["lastRun"] == "2026-08-12T09:00:00.000Z"
     assert experiment["createdAt"] == "2026-08-12T09:00:00.000Z"
-    # The undated run still appears, dated "now" by the reader's fallback.
+    # The undated run still appears, dated "now".
     assert len(experiment["runs"]) == 2
 
 
@@ -612,8 +599,7 @@ def test_artifacts_combine_records_with_loose_files(populated: Storage) -> None:
     artifacts = populated.read_artifacts(PROJECT, RUN_ID)
     assert [a["_id"] for a in artifacts] == ["confusion_matrix_1", "confusion_matrix.png"]
     assert artifacts[0]["metadata"]["labels"] == ["retained", "churned"]
-    # The payload is passed through with no key transform — the only place in the format
-    # where the on-disk key reaches the UI unchanged.
+    # Payload keys are passed through untransformed.
     assert "matrix" in artifacts[0]["metadata"]
     placeholder = artifacts[1]
     assert placeholder["type"] == "unknown" and placeholder["version"] == "latest"
@@ -653,14 +639,13 @@ def test_csv_export_is_the_sorted_union_of_all_keys(populated: Storage) -> None:
     csv = populated.export_metrics_csv(PROJECT, RUN_ID)
     lines = csv.strip("\n").split("\n")
     assert lines[0] == "absolute_timestamp,accuracy,loss,step,timestamp,val_accuracy,val_loss"
-    # A key absent from a row is an empty cell, not a shifted column.
+    # Missing keys are empty cells.
     assert lines[1] == "1786506281.88,0.3122,1.9124,200,38.4,,"
     assert lines[2].endswith("0.489,1.4022")
 
 
 def test_csv_export_quotes_per_rfc_4180(storage: Storage) -> None:
-    """The reader joins raw values with commas, so one comma inside a string metric
-    corrupts every column to its right. Quoting is a fix, not a formatting preference."""
+    """Unquoted, a comma inside a value would shift every column after it."""
     path = storage.root / PROJECT / RUN_ID / contract.METRICS_FILE
     write_jsonl(
         path,
@@ -693,7 +678,7 @@ def test_update_run_tags_preserves_unknown_keys(populated: Storage) -> None:
     metadata = json.loads(path.read_text(encoding="utf-8"))
     assert metadata["tags"] == ["fresh"]
     assert "updated_at" in metadata
-    # Everything the writer did not touch survives the round trip.
+    # Other keys are untouched.
     for key, value in METADATA.items():
         if key != "tags":
             assert metadata[key] == value
@@ -710,7 +695,7 @@ def test_update_run_description_creates_the_summary_if_absent(storage: Storage) 
     assert storage.update_run_description(PROJECT, RUN_ID, "a better description") is True
     summary = json.loads((run_dir / contract.SUMMARY_FILE).read_text(encoding="utf-8"))
     assert summary["notes"] == "a better description"
-    # notes is also the display name, so editing the description renamed the run.
+    # notes is also the display name.
     assert storage.read_run(PROJECT, RUN_ID)["name"] == "a better description"
 
 
@@ -720,7 +705,7 @@ def test_update_experiment_description_will_not_create_a_project(storage: Storag
     (storage.root / PROJECT).mkdir(parents=True)
     assert storage.update_experiment_description(PROJECT, PROJECT, "hi") is True
     assert (storage.root / PROJECT / "project_metadata.json").exists()
-    # ...and the experiment read paths open it, so the edit survives a reload (GAPS M3).
+    # The experiment read path uses it, so the edit survives a reload.
     assert storage.read_experiment(PROJECT)["description"] == "hi"
 
 
@@ -756,7 +741,7 @@ def test_create_run_writes_metadata_first(storage: Storage) -> None:
         ("learning rate", "learningRate"),
         ("learning-rate", "learningRate"),
         ("learning_RATE", "learningRate"),
-        # No separator means one token, which is lowercased in full.
+        # No separator: one token, fully lowercased.
         ("LearningRate", "learningrate"),
         ("top_1_accuracy", "top1Accuracy"),
         ("f1", "f1"),
@@ -786,12 +771,9 @@ def test_camel_case_collisions_are_real(storage: Storage) -> None:
         ("231.4", "0s"),
         (True, "0s"),
         (float("nan"), "0s"),
-        # Halves round up, not to even — Python's default would render this "30s".
+        # Halves round up, not to even (Python's round() gives "30s").
         (30.5, "31s"),
-        # Deliberate divergence from the reader, which floors the minutes and rounds the
-        # seconds independently and so renders these as "60s" and "59m 60s". Rounding the
-        # total first makes the carry happen once. This is not a hypothetical: a
-        # fractional average duration lands here on nearly every dashboard load.
+        # Round the total first, so it never renders "60s" or "59m 60s".
         (59.6, "1m 0s"),
         (3599.6, "1h 0m 0s"),
         (3659.7, "1h 1m 0s"),
@@ -802,7 +784,7 @@ def test_format_duration(seconds: object, expected: str) -> None:
 
 
 def test_a_duration_never_displays_sixty_seconds() -> None:
-    """The property behind the case above, checked across a whole minute of fractions."""
+    """Checked for every tenth of a second across 0-600s."""
     for tenths in range(0, 6000):
         seconds = tenths / 10
         for rendered in (
@@ -817,8 +799,7 @@ def test_a_duration_never_displays_sixty_seconds() -> None:
 def test_format_duration_without_hours_is_a_separate_formatter() -> None:
     assert contract.format_duration_no_hours(3903) == "65m 3s"
     assert contract.format_duration_no_hours(3.2) == "3s"
-    # Still hourless after the rounding fix — 3599.6 carries to 3600, which stays "60m 0s"
-    # here and becomes "1h 0m 0s" on the run page. The two formatters remain distinct.
+    # 3599.6 carries to 3600: "60m 0s" here, "1h 0m 0s" on the run page.
     assert contract.format_duration_no_hours(3599.6) == "60m 0s"
 
 

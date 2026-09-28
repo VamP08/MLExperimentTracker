@@ -2,50 +2,36 @@ import { useEffect, useState } from "react";
 import { FiX } from "react-icons/fi";
 import { demoSnapshotInfo } from "../../lib/api";
 import "./DemoBanner.css";
-// Disabled states for the controls the static demo cannot operate (the log and patch
-// downloads). Imported here because this component is the one thing that renders only in
-// the demo, so the stylesheet rides in on the demo's module graph and on nothing else.
+// Disabled styles for controls the demo can't serve (log and patch downloads). Imported
+// here because this component only renders in the demo build.
 import "../../demo/demoOnly.css";
 
 /** Where "run it yourself" points. */
 const REPO_URL = "https://github.com/VamP08/MLExperimentTracker";
 
-/**
- * Dismissal is remembered for the tab, not forever.
- *
- * sessionStorage rather than localStorage on purpose: a visitor who has read the notice
- * should not have to read it again while clicking around, but the page must not be able
- * to permanently forget that it is telling people what they are looking at.
- */
+/** Dismissal is remembered for the tab (sessionStorage), not forever. */
 const DISMISSED_KEY = "mlexp-demo-banner-dismissed";
 
 /** Matches the collapse transition in DemoBanner.css. */
 const LEAVE_MS = 200;
 
 /**
- * The notice at the top of the static demo build.
- *
- * The demo is the same dashboard as the real one with its data layer swapped for a
- * snapshot, and that is exactly the sort of thing that reads as fake unless it says what
- * it is. So it says it, above the fold, before anything else: no server, real runs,
- * nothing saved, and the two commands that reproduce it locally.
- *
- * Rendered only by the demo build — see the VITE_DEMO guard in App.tsx.
+ * Notice at the top of the static demo: no server, real runs, nothing saved, and how to
+ * run it locally. Only rendered in the demo build (see VITE_DEMO in App.tsx).
  */
 const DemoBanner = () => {
   const [visible, setVisible] = useState(() => {
     try {
       return sessionStorage.getItem(DISMISSED_KEY) !== "1";
     } catch {
-      // Private-mode Safari throws on sessionStorage access. Showing the notice is the
-      // safe failure.
+      // Private-mode Safari throws on sessionStorage access. Just show the notice.
       return true;
     }
   });
   const [leaving, setLeaving] = useState(false);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
 
-  // When the numbers on screen were measured, if the snapshot says.
+  // When the snapshot was captured, if known.
   useEffect(() => {
     let cancelled = false;
     demoSnapshotInfo()

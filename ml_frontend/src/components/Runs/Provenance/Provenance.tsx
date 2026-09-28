@@ -52,7 +52,7 @@ interface Props {
   runId: string;
 }
 
-/** Packages shown before "Show all": enough to see the stack, short enough to scroll past. */
+/** Packages shown before "Show all". */
 const PACKAGE_PREVIEW = 12;
 
 const DEMO_PATCH_NOTE =
@@ -65,10 +65,8 @@ const formatBytes = (bytes: number): string => {
 };
 
 /**
- * The world a run was recorded in: source tree, interpreter, packages, data and machine.
- *
- * Only what the manifest says. Whether that world still matches today is the verification
- * summary's job, above the tabs, and is not repeated here.
+ * The environment a run was recorded in: source, interpreter, packages, data, machine.
+ * Shows the manifest as recorded; drift checks are in the summary above the tabs.
  */
 const Provenance: React.FC<Props> = ({ runId }) => {
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -84,8 +82,7 @@ const Provenance: React.FC<Props> = ({ runId }) => {
       setError(null);
       const response = await apiFetch(`/api/run/${runId}/provenance`);
 
-      // Most runs have no manifest: everything written before format 1.1, and every run
-      // whose capture failed. That is a normal state, not a failure.
+      // Most runs have no manifest (pre-1.1 format, or capture failed). Not an error.
       if (response.status === 404) {
         setManifest(null);
         return;
@@ -151,9 +148,7 @@ const Provenance: React.FC<Props> = ({ runId }) => {
     'unknown';
 
   const downloadPatch = async () => {
-    // Served as an attachment straight from the run directory, so the static demo cannot
-    // produce it — see the same case on the Logs tab. The row above still reports the
-    // diff's real size, which is the part that is evidence.
+    // Served from the run directory as an attachment, so the demo can't provide it.
     if (IS_DEMO) return;
     setDownloadError(null);
     try {

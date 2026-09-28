@@ -6,11 +6,9 @@ import './RunComparison.css';
 import { apiFetch } from '../../../lib/api';
 
 /**
- * The rows `GET /api/experiment/:id/runs` actually sends — seven keys, no more.
- * `metrics` and `parameters` are flat maps built from whatever the run logged,
- * so neither has a fixed key set; `duration` is a pre-formatted string on this
- * endpoint and a number on the run-detail one; `startTime` is the run's
- * `created_at` and may be absent.
+ * Row shape from `GET /api/experiment/:id/runs`. `metrics` and `parameters` are flat maps of
+ * whatever the run logged. `duration` is a formatted string here (a number on the run detail
+ * endpoint) and `startTime` may be missing.
  */
 interface RunRow {
   _id: string;
@@ -29,11 +27,7 @@ interface ComparedRun extends Omit<RunRow, 'metrics'> {
 
 interface Props {
   experimentId: string;
-  /**
-   * Runs to select on open. Used when the comparison is launched from a
-   * selection the user already made; without it the first two runs are
-   * selected so the table is not empty on arrival.
-   */
+  /** Runs to preselect. Defaults to the first two. */
   initialSelectedRunIds?: string[];
 }
 
@@ -51,8 +45,7 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // A stable dependency for the selection effect below. The caller builds a new
-  // array on every render; keying on its contents keeps the effect from looping.
+  // Stable dependency for the selection effect; the caller passes a new array every render.
   const initialKey = JSON.stringify(initialSelectedRunIds || []);
 
   const fetchRuns = useCallback(async () => {
@@ -60,9 +53,7 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
       setLoading(true);
       setError(null);
 
-      // Relative URL. An absolute http://localhost:5000 origin is cross-origin
-      // from both the dev server and the bundle the API itself serves, and gets
-      // blocked before the response is read.
+      // Keep this relative. An absolute localhost:5000 URL is cross-origin and gets blocked.
       const response = await apiFetch(`/api/experiment/${experimentId}/runs`);
 
       if (!response.ok) {
@@ -71,8 +62,7 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
 
       const data: RunRow[] = await response.json();
 
-      // The API flattens `metrics_summary` into sibling scalars; regroup them
-      // into the nested shape this table reads. See lib/metrics.ts.
+      // The API flattens metrics_summary into sibling scalars; regroup them (see lib/metrics.ts).
       const compared: ComparedRun[] = (Array.isArray(data) ? data : []).map((run) => ({
         ...run,
         metrics: groupFlatMetricsByName(run.metrics || {}),
@@ -91,8 +81,7 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
     fetchRuns();
   }, [fetchRuns]);
 
-  // Seed the selection once the rows are in hand: the runs the caller asked for
-  // if they exist, otherwise the first two so the table is not empty on arrival.
+  // Preselect the requested runs if they exist, otherwise the first two.
   useEffect(() => {
     const requested = JSON.parse(initialKey) as string[];
     const present = requested.filter((id) => runs.some((run) => run._id === id));
@@ -137,10 +126,8 @@ const RunComparison: React.FC<Props> = ({ experimentId, initialSelectedRunIds })
   }, [selectedRunsData]);
 
   /**
-   * The spread of one metric across the selected runs. It deliberately does not
-   * decide which end is good: nothing in the storage format records whether a
-   * metric should be maximised, and calling the largest loss the best value
-   * would be an invented claim.
+   * Spread of one metric across the selected runs. Doesn't mark a best value, since the
+   * format doesn't record whether a metric should go up or down.
    */
   const getMetricSpread = (metricName: string) => {
     const values = selectedRunsData

@@ -1,7 +1,6 @@
 /**
- * A timestamp from the dashboard payload as a short local date and time. The server sends
- * "N/A" for an experiment with no activity, and a run can lack a start time, so anything that
- * does not parse reads as a dash rather than "Invalid Date".
+ * Dashboard timestamp as a short local date and time. The server sends "N/A" for an
+ * experiment with no activity, so anything unparseable shows a dash.
  */
 export function shortDate(value: string | null | undefined): string {
   if (!value) return "—";

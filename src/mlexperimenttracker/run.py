@@ -1,34 +1,7 @@
-"""The writer half of the product: one :class:`Run` object per training script.
+"""Writer side: one :class:`Run` per training script.
 
-The whole design answers one question from DATA-CONTRACT — *what does a reader that
-computes nothing need to be handed?* Three consequences shape this module.
-
-**Every metric is written twice** (DATA-CONTRACT 4.1). The dashboard derives no mean, no
-min, no max and no last value from ``metrics.jsonl``; it reads them out of
-``summary.json``. So :meth:`Run.log` appends a row *and* folds the value into a running
-accumulator, and the accumulator is serialised on a cadence. A metric written only to the
-JSONL has a chart and no number; one written only to the summary has a number and no
-chart.
-
-**A run that dies without writing a terminal state reads as "running" forever** — there is
-no heartbeat and no staleness rule anywhere in the format, so nothing will ever correct
-it. That makes the exit path, not the logging path, the most valuable code here, and it is
-covered four ways: the context manager, ``sys.excepthook``, signal handlers, and
-``atexit``. They overlap deliberately, because each one misses a different exit.
-
-**Names are load-bearing and lossy.** The reader camelCases every metric and parameter key
-with a transform that collapses ``_``, ``-`` and space, so this module emits pure lowercase
-``snake_case`` and refuses the handful of names that collide with derived statistics.
-
-**Provenance is captured at ``init()`` and can never fail the run.** The manifest — commit,
-uncommitted patch, packages, dataset hashes, environment — is what makes a recorded run
-checkable later rather than merely viewable, so it is on by default; but it is attached to
-somebody's training job, so every path that touches it degrades to a log line. A tracker
-that can kill a training job over a missing git binary is a tracker nobody attaches to a
-job that matters.
-
-Standard library only. A tracker that adds dependencies to a training environment is a
-tracker people uninstall.
+Metrics go to metrics.jsonl and into running stats in summary.json (the UI computes none).
+Terminal state is written on four exit paths; provenance capture never raises. Stdlib only.
 """
 
 from __future__ import annotations
@@ -79,25 +52,20 @@ __all__ = ["Run", "init"]
 
 logger = logging.getLogger("mlexperimenttracker")
 
-#: The charset a project or run directory may use. Anything outside it is either unsafe in
-#: a URL path segment or unaddressable by the server's containment check, which refuses to
-#: resolve it and 404s every endpoint for that run — a run that exists on disk and cannot
-#: be opened is a worse failure than a rejection at ``init()``.
+# Allowed project/run dir names. Anything else is unsafe in a URL or would 404 in the
+# server's containment check, so reject it at init() instead.
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
 
-#: What a metric or parameter name must look like for the reader's camelCase transform to
-#: be a lossless, predictable ``snake_case -> camelCase``.
+# Names that survive the reader's camelCase transform predictably.
 _SNAKE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _SEPARATORS = re.compile(r"[_\s-]+")
 
-#: The suffixes that collide with a derived statistic: metric ``loss_mean`` and the mean of
-#: metric ``loss`` both reach the UI as ``lossMean``, and the later key wins silently.
+# `loss_mean` and the mean of `loss` both become `lossMean` in the UI.
 _COLLIDING_SUFFIXES = tuple(f"_{stat}" for stat in STAT_KEYS)
 
-#: Keys of ``summary.json`` this module owns and rewrites. Everything else found in the
-#: file is carried through untouched, because the server writes ``notes`` and
-#: ``updated_at`` there when a user edits a run description in the UI.
+# summary.json keys this module rewrites. Other keys (e.g. the server's updated_at) are
+# preserved.
 _MANAGED_SUMMARY_KEYS = frozenset({"state", "duration", "end_time", "notes", "metrics_summary"})
 
 _DEFAULT_SUMMARY_INTERVAL: float = 10.0
@@ -110,12 +78,9 @@ _DEFAULT_SUMMARY_INTERVAL: float = 10.0
 
 @dataclass(slots=True)
 class _Accumulator:
-    """Welford's online variance, one instance per metric name.
+    """Running stats for one metric, using Welford's online variance.
 
-    A naive ``sum(x)`` / ``sum(x**2)`` accumulator loses catastrophically when the values
-    are large and their variance is small — precisely the shape of a loss curve that has
-    converged, where the interesting digits are the ones cancellation destroys. Welford
-    costs one extra multiply per sample and is stable for the same input.
+    Sum-of-squares loses precision on large values with small variance (a converged loss).
     """
 
     count: int = 0
@@ -137,13 +102,9 @@ class _Accumulator:
         self.latest = value
 
     def snapshot(self) -> dict[str, float]:
-        """The exact four stat keys the reader recognises, plus the ``latest`` without
-        which the metric is invisible entirely (``run.service.js:152``).
+        """The four stat keys the reader knows, plus ``latest`` (required to show at all).
 
-        ``stddev`` is the **population** standard deviation. Nothing in the format records
-        which convention was used and nothing validates it, so the choice is documented
-        here and in the fixture rather than inferred: these are the statistics of the
-        logged points, not an estimate of a wider population they were drawn from.
+        ``stddev`` is the population standard deviation of the logged points.
         """
         variance = self.m2 / self.count if self.count else 0.0
         return {
@@ -151,8 +112,7 @@ class _Accumulator:
             "mean": self.mean,
             "min": self.minimum,
             "max": self.maximum,
-            # m2 can drift a hair below zero on a constant series; the negative would
-            # propagate as a domain error out of sqrt.
+            # m2 can drift just below zero on a constant series.
             "stddev": math.sqrt(variance) if variance > 0.0 else 0.0,
         }
 
@@ -161,10 +121,8 @@ class _Accumulator:
 # Process-wide terminal-state hooks
 # --------------------------------------------------------------------------------------
 
-#: Live runs, keyed by identity. Mutated with single dict operations only, never under a
-#: lock: a signal handler runs on the main thread between bytecodes, so a lock held by the
-#: main thread when the signal lands would deadlock against itself, and a lock held by a
-#: worker thread would block the terminal write that the handler exists to perform.
+# Live runs by id(). Single dict ops only, no lock: signal handlers run on the main thread
+# and would deadlock on a lock the interrupted code already holds.
 _ACTIVE: dict[int, Run] = {}
 
 _INSTALL_LOCK = threading.Lock()
@@ -174,15 +132,10 @@ _PREVIOUS_SIGNAL_HANDLERS: dict[int, Any] = {}
 
 
 def _install_hooks(capture_signals: bool) -> None:
-    """Install the exit hooks once per process, chaining to whatever was already there.
+    """Install exit hooks once per process, chaining to any existing handlers.
 
-    Chaining rather than replacing matters: a training script under a supervisor, a
-    notebook kernel and pytest all install their own excepthook or SIGINT handler, and a
-    tracker that silently swallows them changes how the *program* behaves, which is far
-    worse than losing a run's status.
-
-    The hooks are never uninstalled. They are inert with no active runs, and removing them
-    would have to restore a handler that a later library may since have replaced.
+    Never uninstalled: they do nothing with no active runs, and something else may have
+    replaced them since.
     """
     global _HOOKS_INSTALLED, _PREVIOUS_EXCEPTHOOK
     with _INSTALL_LOCK:
@@ -204,20 +157,14 @@ def _install_hooks(capture_signals: bool) -> None:
                 previous = signal.getsignal(signum)
                 signal.signal(signum, _signal_handler)
             except (ValueError, OSError, RuntimeError):
-                # signal.signal only works on the main thread, and some platforms refuse
-                # particular signals outright. A run started from a worker thread simply
-                # gets no signal coverage; atexit and the context manager still apply.
+                # Only works on the main thread, and some platforms refuse some signals.
+                # atexit and the context manager still cover those runs.
                 continue
             _PREVIOUS_SIGNAL_HANDLERS[int(signum)] = previous
 
 
 def _finish_active(state: RunState) -> None:
-    """Drive every live run to a terminal state, swallowing everything.
-
-    Called from an excepthook, a signal handler and an atexit hook. An exception raised in
-    any of those either replaces the user's traceback, lands at an arbitrary bytecode
-    boundary in their code, or prints noise during interpreter shutdown.
-    """
+    """Finish every live run. Never raises, since it's called from exit hooks."""
     for run in list(_ACTIVE.values()):
         try:
             run.finish(state)
@@ -231,24 +178,16 @@ def _finish_active(state: RunState) -> None:
 def _record_traceback(
     exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None, state: RunState
 ) -> None:
-    """Write the traceback into every live run's log before the run stops accepting records.
+    """Write the traceback into every live run's log as one record.
 
-    It is recorded here rather than captured off ``stderr``, even though the interpreter is
-    about to print it there, because the order the hooks run in makes the stream route
-    unreliable: the terminal state has to be written before control leaves this function,
-    and by the time the previous excepthook prints, the streams have been restored. Writing
-    it explicitly also survives an excepthook that prints somewhere else entirely.
-
-    A traceback is one event, so it is one record — a stack split into a record per frame
-    would be filtered, paged and interleaved apart.
+    Done explicitly because the streams are restored before the previous excepthook prints.
     """
     for run in list(_ACTIVE.values()):
         run._record_exception(exc_type, exc, tb, state)
 
 
 def _excepthook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
-    """An unhandled exception means ``failed`` — the single most important status the
-    format can carry, because the alternative is a crashed run that reads as running."""
+    """Unhandled exception: mark runs failed (interrupted for KeyboardInterrupt)."""
     state = RunState.INTERRUPTED if issubclass(exc_type, KeyboardInterrupt) else RunState.FAILED
     _record_traceback(exc_type, exc, tb, state)
     _finish_active(state)
@@ -257,24 +196,17 @@ def _excepthook(exc_type: type[BaseException], exc: BaseException, tb: Traceback
 
 
 def _signal_handler(signum: int, frame: FrameType | None) -> None:
-    """Record ``interrupted``, then hand the signal back to whoever owned it.
-
-    ``interrupted`` rather than ``failed`` because a SIGINT is a decision, not a defect —
-    and because the UI files it under "archived", which is where a deliberately killed run
-    belongs.
-    """
+    """Mark runs ``interrupted``, then pass the signal to the previous handler."""
     _finish_active(RunState.INTERRUPTED)
 
     previous = _PREVIOUS_SIGNAL_HANDLERS.get(signum, signal.SIG_DFL)
     if callable(previous):
-        # Covers Python's own default SIGINT handler, which raises KeyboardInterrupt, and
-        # any handler the application installed before init() ran.
+        # Includes Python's default SIGINT handler (raises KeyboardInterrupt).
         previous(signum, frame)
         return
     if previous == signal.SIG_IGN:
         return
-    # SIG_DFL: restore the platform default and re-raise, so the process dies with the
-    # exit status and disposition the signal actually implies rather than continuing on.
+    # SIG_DFL: restore it and re-raise so the process exits the way the signal implies.
     try:
         signal.signal(signum, signal.SIG_DFL)
         signal.raise_signal(signum)
@@ -283,12 +215,10 @@ def _signal_handler(signum: int, frame: FrameType | None) -> None:
 
 
 def _atexit_hook() -> None:
-    """The last resort, and the weakest: a normal exit is indistinguishable here from
-    ``sys.exit(1)``, so anything still live is recorded as ``completed``.
+    """Last resort: mark anything still live ``completed``.
 
-    Every stronger path — the context manager, the excepthook, the signal handlers — has
-    already run and already marked the run terminal by this point, so this only fires for
-    a script that reached the end of its main module without calling ``finish()``.
+    Can't tell a clean exit from ``sys.exit(1)``. Only reached if nothing else finished the
+    run. kill -9 is not covered by any hook.
     """
     _finish_active(RunState.COMPLETED)
 
@@ -299,11 +229,9 @@ def _atexit_hook() -> None:
 
 
 class Run:
-    """A single training run, and the only object a training script needs.
+    """A single training run. Create it with :func:`init`.
 
-    Construct through :func:`init` rather than directly; the constructor performs the
-    ``metadata.json`` write that makes the run visible, and doing that inside ``__init__``
-    is what guarantees no code path can obtain a Run that the dashboard cannot see.
+    The constructor writes ``metadata.json``, so any Run object is already visible in the UI.
     """
 
     def __init__(
@@ -344,28 +272,22 @@ class Run:
         self._log_limit_bytes = int(log_limit_bytes)
         self._log_writer: LogWriter | None = None
         self._uninstall_logs: Any = None
-        #: The manifest as it exists **on disk**, or ``None`` when capture was disabled,
-        #: failed, or could not be written. Keeping the in-memory copy in step with the
-        #: file is what lets :meth:`log_dataset` amend a manifest rather than invent one.
+        # Mirrors provenance.json on disk; None if capture was off or failed.
         self._manifest: dict[str, Any] | None = None
 
-        # Wall clock for what is written, monotonic for what is measured: a duration
-        # derived from wall clock goes negative when NTP steps the clock mid-run, and a
-        # negative duration renders as "0s" with no indication anything went wrong.
+        # Wall clock for timestamps, monotonic for durations (NTP steps can make wall-clock
+        # durations negative).
         self._created_at = datetime.now(timezone.utc).astimezone()
         self._epoch_start = self._created_at.timestamp()
         self._monotonic_start = time.monotonic()
         self._last_summary_flush = self._monotonic_start
 
         metadata = {
-            # Absent in the recovered format, so a reader cannot tell what it is reading.
-            # Written first, before any run directory exists that lacks it.
             "format_version": FORMAT_VERSION,
             "created_at": _iso(self._created_at),
             "name": self._name,
             "state": self._state.value,
-            # A list, always. A bare string here throws inside the dashboard's forEach and
-            # returns 500 for every project on the landing page, not just this run.
+            # Must be a list; a string here breaks the whole dashboard.
             "tags": [str(tag) for tag in (tags or [])],
             "notes": self._notes,
             "platform": platform.platform(),
@@ -377,11 +299,8 @@ class Run:
         if config is not None:
             self._storage.write_json(self._dir / CONFIG_FILE, flatten_config(config))
 
-        # Armed before provenance capture, so that anything the capture path reports about
-        # a missing git binary or an unreadable dataset is recorded in the run it concerns
-        # rather than only in a terminal the user has already closed. The writer exists
-        # whatever the flags say: `log_text()` is an explicit call and must work even when
-        # nothing is being captured implicitly.
+        # Before provenance so its warnings land in the run log. Always created so
+        # log_text() works even with capture off.
         self._log_writer = LogWriter(
             storage,
             project,
@@ -430,8 +349,7 @@ class Run:
 
     @property
     def path(self) -> Path:
-        """The run directory. Printing it is how a user checks that the SDK and the server
-        agree about where the data lives — they resolve the root independently."""
+        """The run directory."""
         return self._dir
 
     @property
@@ -440,13 +358,7 @@ class Run:
 
     @property
     def provenance(self) -> dict[str, Any] | None:
-        """The manifest written to ``provenance.json``, or ``None`` if there is none.
-
-        A copy, because the manifest describes a moment: handing out the live dict would
-        let a caller edit the record of a world that already happened while the file on
-        disk says something else. ``None`` is a normal state — capture disabled, no git
-        binary, an unwritable directory — and never an error.
-        """
+        """A copy of the ``provenance.json`` manifest, or ``None`` if none was written."""
         return None if self._manifest is None else copy.deepcopy(self._manifest)
 
     # ----------------------------------------------------------------------------------
@@ -454,18 +366,10 @@ class Run:
     # ----------------------------------------------------------------------------------
 
     def log(self, metrics: Mapping[str, float], step: int | None = None) -> None:
-        """Append one wide row to ``metrics.jsonl`` and fold the values into the summary.
+        """Append one row with all given metrics to ``metrics.jsonl`` and update the summary.
 
-        One row per call carrying every metric observed at that step — never one row per
-        metric. Tall ``{"name": …, "value": …}`` records produce two chart series literally
-        called ``name`` and ``value``, which is the single most common way this format is
-        written wrong.
-
-        Sparse logging is fully supported: a key absent from a row contributes no point at
-        that step, so validation metrics logged once per epoch sit naturally alongside a
-        per-batch loss. Note that a metric logged at only one step never appears on a chart
-        at all — the chart component drops any series with a single point — so a final test
-        score belongs in the summary, which happens automatically here.
+        Rows can be sparse. ``step`` defaults to the previous step + 1. A metric logged once
+        won't chart (single point) but still shows in the summary.
         """
         if not isinstance(metrics, Mapping):
             raise TypeError(
@@ -490,9 +394,7 @@ class Run:
             elapsed = self._elapsed()
             record: dict[str, Any] = {
                 "step": step,
-                # Relative seconds here, epoch seconds in absolute_timestamp — and epoch
-                # seconds again under the name `timestamp` in system_metrics.json. The
-                # collision is in the format, not in this module.
+                # Seconds since start. (system_metrics.json uses `timestamp` for epoch.)
                 "timestamp": round(elapsed, 3),
                 "absolute_timestamp": round(self._epoch_start + elapsed, 3),
             }
@@ -508,16 +410,13 @@ class Run:
             if self._state is RunState.INITIALIZED:
                 self._mark_running()
             elif time.monotonic() - self._last_summary_flush >= self._summary_interval:
-                # Periodic, not per-step: summary.json is rewritten whole, so flushing it
-                # on every call would turn a tight training loop into a write loop. The
-                # terminal write on the exit path is what guarantees the final numbers.
+                # Throttled: summary.json is rewritten whole. finish() writes final numbers.
                 self._write_summary(self._state)
 
     def _clean(self, metrics: Mapping[str, float]) -> list[tuple[str, float]]:
-        """Validate names, coerce values, and drop what cannot be written.
+        """Validate names and coerce values with float() (handles NumPy/torch scalars).
 
-        Coercion goes through ``float()``, which accepts NumPy scalars and zero-dimension
-        tensors without this module importing — or requiring — either library.
+        Non-finite values are dropped with a one-time warning.
         """
         cleaned: list[tuple[str, float]] = []
         for key, raw in metrics.items():
@@ -531,9 +430,7 @@ class Run:
             self._check_name(key)
 
             if isinstance(raw, (str, bytes)):
-                # float("0.5") would succeed, and silently coercing it would hide the far
-                # more common case — a label or a status string logged by mistake, which
-                # the reader would happily plot as a chart series of strings.
+                # Reject strings even if numeric; usually a label logged by mistake.
                 raise TypeError(
                     f"metric {key!r} must be a number, got {type(raw).__name__}. Every "
                     "non-reserved key on a row becomes a chart series with no type check, "
@@ -547,9 +444,7 @@ class Run:
                 ) from exc
 
             if not math.isfinite(value):
-                # A bare NaN or Infinity is not legal JSON: the reader drops the entire
-                # line, taking every other metric at this step with it. Dropping the one
-                # key keeps the rest of the row.
+                # NaN/Infinity isn't valid JSON and the reader would drop the whole row.
                 if key not in self._non_finite_warned:
                     self._non_finite_warned.add(key)
                     warnings.warn(
@@ -562,7 +457,7 @@ class Run:
         return cleaned
 
     def _check_name(self, key: str) -> None:
-        """Warn once per name about the two ways the reader's key transform loses."""
+        """Warn once per name if it would collide after the reader's camelCase transform."""
         if key in self._checked_names:
             return
         self._checked_names.add(key)
@@ -583,18 +478,9 @@ class Run:
             )
 
     def log_text(self, message: str, *, level: str = "info") -> None:
-        """Record one line in the run's log, under source ``user``.
+        """Write one line to the run's log (source ``user``) without printing it.
 
-        The explicit half of log capture. ``print`` and ``logging`` are captured
-        automatically, and this exists for the line a script wants in the record without
-        putting it on somebody's terminal — a chosen seed, a resolved device, the shape of
-        a batch — and for a program whose output goes somewhere this process cannot see.
-
-        Unlike :meth:`log` this does not raise on a bad level: the vocabulary is normalised
-        rather than validated, because a logging call that fails the run over a spelling is
-        the failure mode the whole capture path is built to avoid. It *does* raise after
-        ``finish()``, which is a programming error rather than an environmental one, and
-        the same rule :meth:`log` follows.
+        An unknown ``level`` falls back to info. Raises after ``finish()``.
         """
         with self._lock:
             self._require_live()
@@ -616,10 +502,8 @@ class Run:
     ) -> None:
         """Append one artifact record to ``artifacts.jsonl``.
 
-        The format has no path and no URL field and nothing in the product can download an
-        artifact, so ``metadata`` is not a description of a file — it *is* the payload, and
-        it reaches the visualisation components verbatim with no key transform of any kind.
-        That makes it the one place in the contract where a key is not snake_case.
+        ``metadata`` is the payload itself (there's no file behind it) and reaches the UI
+        components without any key transform.
         """
         if not isinstance(name, str) or not name:
             raise ValueError("artifact name must be a non-empty string")
@@ -634,8 +518,7 @@ class Run:
                 {
                     "name": name,
                     "type": type,
-                    # Half of the composite id `${name}_${version}`; a number would work
-                    # but produces a different id for 1 and "1".
+                    # Part of the id `${name}_${version}`; str so 1 and "1" match.
                     "version": str(version),
                     "created_at": _iso(datetime.now(timezone.utc).astimezone()),
                     "file_count": int(file_count),
@@ -655,15 +538,10 @@ class Run:
         name: str = "confusion_matrix",
         version: str = "1",
     ) -> None:
-        """Log a confusion matrix in the exact shape ``ConfusionMatrix.tsx`` expects.
+        """Log a confusion matrix in the shape ``ConfusionMatrix.tsx`` expects.
 
-        ``matrix`` is row = true class, column = predicted class, in ``labels`` order.
-
-        The Python argument is ``f1_score`` and the key written to disk is ``f1Score``:
-        the component reads the metadata object straight off the artifact with no key
-        transform, so this is the only camelCase key in the whole contract and a
-        snake_case spelling would simply not be found. Getting it wrong renders nothing
-        and reports nothing.
+        ``matrix`` rows are true classes, columns predicted, in ``labels`` order.
+        ``f1_score`` is written as ``f1Score`` because the component reads keys as-is.
         """
         label_list = [str(label) for label in labels]
         rows = [[_as_number(cell) for cell in row] for row in matrix]
@@ -699,12 +577,9 @@ class Run:
         name: str | None = None,
         version: str = "1",
     ) -> None:
-        """Log one ROC curve — **one artifact line per class**.
+        """Log one ROC curve. For multi-class, call once per class.
 
-        The component collects every ``roc_curve`` artifact on the run and draws them as a
-        curve list labelled by ``className``, so a multi-class model calls this once per
-        class. The default artifact name carries the class for the same reason: two lines
-        sharing a name and a version produce duplicate ids in the artifacts tab.
+        The default name includes the class so artifact ids stay unique.
         """
         false_positive = [float(value) for value in fpr]
         true_positive = [float(value) for value in tpr]
@@ -735,15 +610,10 @@ class Run:
         name: str = "feature_importance",
         version: str = "1",
     ) -> None:
-        """Log feature importances, accepting whatever shape the caller already has.
+        """Log feature importances, sorted descending.
 
-        A ``{name: importance}`` mapping, a sequence of ``{"name", "importance", "std"}``
-        dicts, or a sequence of ``(name, importance)`` / ``(name, importance, std)`` tuples
-        all normalise to the ``features`` array the component requires — it checks for that
-        key explicitly and renders an error without it.
-
-        Sorted by importance, descending, because the component renders the array in order
-        and an unsorted importance chart is unreadable.
+        Accepts a ``{name: importance}`` mapping, dicts with ``name``/``importance``/``std``,
+        or ``(name, importance[, std])`` tuples.
         """
         normalised: list[dict[str, Any]] = []
         if isinstance(features, Mapping):
@@ -786,15 +656,8 @@ class Run:
     def log_checkpoint(self, name: str, step: int, path: str | os.PathLike[str] | None = None) -> Path:
         """Write a ``checkpoints/<name>.json`` sidecar and return its path.
 
-        The reader lists only ``*.json`` files in that directory, so the weights themselves
-        — ``.pt``, ``.safetensors``, ``.ckpt`` — are invisible to the product no matter
-        where they are written; the sidecar is the checkpoint as far as the UI is concerned.
-
-        When ``path`` points at real weights, their true byte size is recorded. Nothing
-        reads that field today — the server reports the *sidecar's* size, so every
-        checkpoint currently displays as a few hundred bytes — but writing the real number
-        costs nothing and turns the eventual fix into a one-line server change against data
-        that already exists.
+        The UI only lists the JSON sidecars, not weight files. If ``path`` is given, the
+        weights' real size is recorded (the server currently shows the sidecar's size).
         """
         sidecar = self._storage.resolve_within(
             self._project, self._run_id, CHECKPOINTS_DIR, f"{name}.json"
@@ -807,8 +670,7 @@ class Run:
 
         payload: dict[str, Any] = {
             "checkpoint_name": str(name),
-            # Drives the newest-first sort in the UI; an unparseable value there makes the
-            # order of the whole list undefined.
+            # The UI sorts on this.
             "created_at": _iso(datetime.now(timezone.utc).astimezone()),
             "step": _as_step(step),
         }
@@ -816,8 +678,7 @@ class Run:
             weights = Path(path)
             payload["path"] = str(weights)
             try:
-                # Not routed through Storage: the weights are the user's file, outside the
-                # run tree by design, and Storage's containment is scoped to that tree.
+                # Not via Storage: the weights live outside the run tree.
                 payload["size_bytes"] = weights.stat().st_size
             except OSError:
                 payload["size_bytes"] = 0
@@ -834,29 +695,13 @@ class Run:
     def log_dataset(
         self, path: str | os.PathLike[str], *, name: str | None = None
     ) -> dict[str, Any]:
-        """Hash a file or directory and record it in the manifest. Returns the entry.
+        """Hash a file or directory, add it to the manifest, and return the entry.
 
-        This is the hook that makes "which data produced this model" answerable, so it has
-        to work after ``init()`` and not only at it: the training set is often assembled,
-        downloaded or resampled several lines *after* the run starts, and a manifest that
-        could only be populated before that would record the intent rather than the data.
-
-        The manifest is re-read from disk before the entry is appended rather than being
-        rewritten from the in-memory copy, so a concurrent edit — a second process, a user
-        with an editor — is preserved instead of being overwritten by a stale snapshot.
-        Entries are keyed by ``name`` when one is given and by ``path`` otherwise, and a
-        repeat of the same key **replaces** the earlier entry: two entries claiming the
-        same dataset with different digests are not a history, they are a record no
-        verifier can act on.
-
-        Nothing here raises over the data: an unreadable path returns an entry carrying
-        ``error`` instead of a digest, because a typo in a dataset path must cost the
-        dataset field and never the run. It does raise on being called after ``finish()``,
-        which is a programming error rather than an environmental one.
+        Re-reads the manifest from disk first so concurrent edits survive. Entries are keyed
+        by ``name`` (or ``path``); a repeat replaces the old entry. An unreadable path gives
+        an entry with ``error`` instead of raising. Raises after ``finish()``.
         """
-        # Hashed outside the lock. A directory of tens of gigabytes takes minutes, and
-        # holding the run lock for that long would block every `log()` call in the
-        # training loop behind a bookkeeping write.
+        # Hash outside the lock; big directories take minutes and would block log().
         entry = _provenance.hash_path(path)
         if name is not None:
             entry["name"] = str(name)
@@ -867,10 +712,8 @@ class Run:
             if manifest is None:
                 manifest = self._manifest
             if manifest is None:
-                # No manifest means capture was disabled or failed. Writing one here would
-                # produce a file whose git block is empty for a reason nothing recorded,
-                # which a later `verify` cannot tell apart from "not a repository" — a
-                # worse outcome than an honest absence.
+                # Capture was off or failed. Don't create a partial manifest that verify
+                # would misread as "not a repository".
                 logger.warning(
                     "run %s has no provenance manifest, so dataset %s was hashed but not "
                     "recorded; pass provenance=True to init() to capture one",
@@ -889,8 +732,7 @@ class Run:
                 datasets.append(entry)
             manifest["datasets"] = datasets
 
-            # `patch=None` leaves any `uncommitted.patch` on disk untouched: this write
-            # amends the manifest, and the patch it names was captured at init().
+            # patch=None keeps the uncommitted.patch captured at init().
             if not self._storage.write_provenance(self._project, self._run_id, manifest, None):
                 logger.warning(
                     "could not update the provenance manifest for run %s", self._run_id
@@ -905,14 +747,10 @@ class Run:
         *,
         capture_diff: bool,
     ) -> None:
-        """Capture the manifest and write it. Swallows everything, deliberately.
+        """Capture and write the manifest. Swallows all errors.
 
-        :func:`provenance.capture` already degrades every block it cannot fill, so this
-        ``except`` is for the failure it cannot anticipate — a monkeypatched module, a
-        broken NVML binding that segfaults its way into a Python exception, an OS error
-        raised from a place the capture layer does not guard. The rule is unconditional and
-        this is where it is enforced: **nothing about recording the world may end the run
-        that is being recorded.**
+        capture() already degrades per block; this catches anything unexpected so
+        provenance can never raise into the training job.
         """
         try:
             entries = [_provenance.hash_path(path) for path in (datasets or ())]
@@ -936,16 +774,10 @@ class Run:
     # ----------------------------------------------------------------------------------
 
     def finish(self, state: RunState | str = RunState.COMPLETED, notes: str | None = None) -> None:
-        """Write the terminal ``summary.json``. Idempotent, and safe from a signal handler.
+        """Write the terminal state to ``summary.json``. Idempotent and signal-safe.
 
-        The terminal state goes into ``summary.json`` rather than ``metadata.json`` because
-        the dashboard's counters read ``summary.state`` exclusively and never consult
-        metadata — a run whose only terminal marker were in metadata would show the right
-        badge on its own page and count toward nothing on the landing page.
-
-        Idempotence is not a nicety here. Four independent paths call this — the context
-        manager, the excepthook, a signal handler, and atexit — and at least two of them
-        fire for a single Ctrl-C.
+        The dashboard counters read ``summary.state``, not metadata. Idempotent because the
+        four exit paths can overlap (a Ctrl-C fires at least two).
         """
         terminal = RunState(state) if not isinstance(state, RunState) else state
         if terminal not in TERMINAL_STATES:
@@ -971,10 +803,7 @@ class Run:
         try:
             self._write_summary(terminal)
         finally:
-            # In a `finally`, and last: a run that leaves `sys.stdout` replaced has broken
-            # every `print` for the rest of the process, and it would break them by writing
-            # into a run directory that is already terminal. A failed summary write is a
-            # lost status; a stream left wrapped is a broken interpreter.
+            # Always restore stdout/stderr, even if the summary write failed.
             self._close_logs()
         logger.info("run %s finished: %s", self._run_id, terminal.value)
 
@@ -987,11 +816,7 @@ class Run:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> bool:
-        """The precise exit path: it is the only one that knows *why* the block ended.
-
-        Every other hook infers. This one is told, which is why the context-manager form is
-        the one worth recommending.
-        """
+        """Finish with a state based on how the block exited. Never suppresses exceptions."""
         if exc_type is None:
             self.finish(RunState.COMPLETED)
             return False
@@ -1004,10 +829,8 @@ class Run:
         else:
             state = RunState.FAILED
 
-        # Before `finish`, which closes the log: the traceback is the single most useful
-        # thing a failed run can hold, and here it is handed to us rather than inferred from
-        # whatever the interpreter later prints. A `with` block whose exception the caller
-        # catches never reaches the excepthook at all, so this is the only chance.
+        # Before finish() closes the log. A caught exception never reaches the excepthook,
+        # so this is the only place to record it.
         if state is not RunState.COMPLETED:
             self._record_exception(exc_type, exc, tb, state)
         self.finish(state)
@@ -1031,26 +854,18 @@ class Run:
         writer = self._log_writer
         if writer is None or exc_type is None:
             return
-        # First, so that a `print` with no trailing newline — very often the last thing a
-        # crashing script wrote — lands before the traceback rather than after it.
+        # Flush any partial print line so it lands before the traceback.
         _flush_pending_logs(self)
         try:
             text = "".join(traceback.format_exception(exc_type, exc, tb)).rstrip("\n")
         except Exception:  # noqa: BLE001 - an exit path may not raise
             return
-        # A Ctrl-C is a decision rather than a defect, and filing it under `error` would put
-        # it in the bucket a user searches when something went wrong.
+        # Ctrl-C isn't an error.
         level = "warning" if state is RunState.INTERRUPTED else "error"
         writer.write(text, level=level, source="stderr")
 
     def _close_logs(self) -> None:
-        """Restore the streams and stop the writer. Swallows everything, deliberately.
-
-        Reached from ``finish()``, which is itself reached from an excepthook, a signal
-        handler and an ``atexit`` hook — none of which may raise. An exception here would
-        either replace a user's traceback with this module's, or land at an arbitrary
-        bytecode boundary in their code.
-        """
+        """Restore the streams and stop the writer. Never raises (called from exit hooks)."""
         uninstall, self._uninstall_logs = self._uninstall_logs, None
         if uninstall is None:
             return
@@ -1072,15 +887,10 @@ class Run:
             )
 
     def _mark_running(self) -> None:
-        """Flip to ``running`` on the first logged step, by merge rather than overwrite.
+        """Set state to ``running`` on the first logged step.
 
-        The UI writes ``tags`` back into this file, and a blind rewrite would destroy tags
-        a user added while the run was in flight. Re-reading narrows that race; nothing in
-        the format can close it, because there is no locking and no compare-and-swap.
-
-        ``running`` is deliberately not written at ``init()``: a run that has not logged a
-        step has not started training, and claiming otherwise would be the one lie the
-        dashboard has no way to detect.
+        Re-reads metadata before writing so tags edited in the UI aren't lost (narrows the
+        race; there's no file locking).
         """
         self._state = RunState.RUNNING
         path = self._dir / METADATA_FILE
@@ -1091,12 +901,9 @@ class Run:
         self._write_summary(RunState.RUNNING)
 
     def _write_summary(self, state: RunState) -> None:
-        """Rewrite ``summary.json`` whole, preserving what the server may have put there.
+        """Rewrite ``summary.json``, keeping keys the server added.
 
-        ``notes`` is the subtle one: it is simultaneously the run's display name and its
-        description, and the UI's description editor writes it into this file. An SDK that
-        was given no notes therefore defers to whatever is on disk, and only overwrites
-        when the caller actually supplied something.
+        ``notes`` from disk (edited in the UI) wins unless the caller set notes.
         """
         path = self._dir / SUMMARY_FILE
         existing = self._storage.read_json(path)
@@ -1104,9 +911,7 @@ class Run:
 
         summary: dict[str, Any] = {
             "state": state.value,
-            # Seconds, as a JSON number. The formatter renders anything else — an ISO-8601
-            # duration, a timedelta repr, milliseconds — as "0s" or as a wrong number, with
-            # no error either way.
+            # Seconds as a number; the UI shows anything else as "0s".
             "duration": round(self._elapsed(), 3),
         }
         if state in TERMINAL_STATES:
@@ -1150,52 +955,20 @@ def init(
     capture_logging: bool = True,
     log_limit_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Run:
-    """Start a run: create its directory, write ``metadata.json``, arm the exit hooks.
+    """Start a run: create its directory, write ``metadata.json``, install exit hooks.
 
-    ``metadata.json`` is written before this function returns because it is the only file
-    whose absence hides a run completely — the run endpoint 404s and the dashboard skips
-    the run while still counting it against the project's success rate.
+    ``notes`` is both the run's display name and its description in the UI; empty shows
+    ``Run <id>``. System metrics are off by default (a thread plus a file rewrite per tick).
 
-    On ``notes``: it is the run's display **name** and its description on the run page, and
-    the first non-empty notes in a project becomes that project's description. The default
-    is empty, which means a run displays as ``Run <id>``; setting it accepts that name and
-    description are one field. That is a defect in the reader, and this is the honest way
-    to live with it.
+    Provenance is on by default and captured from the current working directory: commit,
+    uncommitted patch, packages, environment, command line. ``datasets`` are content-hashed,
+    which can be slow; more can be added later with :meth:`Run.log_dataset`.
+    ``capture_diff=False`` skips the patch, which can contain secrets from a dirty tree.
+    ``provenance=False`` writes no manifest.
 
-    System metrics are off by default. Sampling costs a thread and a whole-file rewrite per
-    tick, and a tracker should not spend either without being asked.
-
-    **Provenance is on by default**, and unlike system metrics it is worth the cost: it
-    writes ``provenance.json`` describing the commit, the uncommitted patch, the resolved
-    package versions, the allowlisted environment and the command line — the difference
-    between a run someone can look at and a run someone can check. The capture is taken in
-    the **current working directory**, which is the repository the training script was
-    launched from, and it costs a handful of ``git`` invocations plus one pass over the
-    installed distributions; ``datasets`` adds a full content hash per path, which is the
-    only part that can take minutes and is therefore never implicit. Datasets can also be
-    added later with :meth:`Run.log_dataset`.
-
-    ``capture_diff`` controls the one part of the capture that can leak: the patch is the
-    diff of a dirty working tree, and a dirty working tree is exactly where a half-finished
-    ``.env`` edit or a key pasted in to get one experiment running lives. It is captured by
-    default because a run without it is not reproducible, it is capped and the cap is
-    recorded rather than silent, and it is a separate file so it can be deleted without
-    destroying the record that it existed. Turn it off for a tree you would not paste into
-    a chat window. Set ``provenance=False`` to write nothing at all.
-
-    **Output capture is on by default**, and it is the one default here that changes what
-    the *process* does rather than only what is written: ``sys.stdout`` and ``sys.stderr``
-    are wrapped for the life of the run, and the root logger gains a handler. Both keep
-    doing what they did — the terminal still receives every byte, existing logging handlers
-    are untouched — and both are put back exactly as they were when the run finishes, on
-    every exit path including a crash. It is on because a run whose output was not recorded
-    cannot answer the first question anybody asks of a failure, and because a user who has
-    to remember a flag will remember it after the run they needed it for.
-
-    ``capture_output=False`` leaves the streams alone, ``capture_logging=False`` installs no
-    handler, and ``log_text()`` still works with both off. ``log_limit_bytes`` bounds the
-    file: on reaching it capture stops and says so in one final record, because a log that
-    ends silently part-way through is read as the end of the run.
+    Output capture is on by default: stdout/stderr are teed and the root logger gets a
+    handler, all restored on finish. ``capture_output`` and ``capture_logging`` turn these
+    off. ``log_limit_bytes`` caps the log file; hitting it writes one final notice record.
     """
     storage = Storage(storage_path)
     project = _resolve_project(storage, project)
@@ -1227,13 +1000,9 @@ def init(
 
 
 def _resolve_project(storage: Storage, project: str) -> str:
-    """Validate the project name and adopt the casing of an existing sibling.
+    """Validate the project name and reuse an existing project's casing if one matches.
 
-    A case-insensitive filesystem — Windows, default macOS — merges ``MyProject`` and
-    ``myproject`` into one directory while Linux keeps two, so the same script produces a
-    different dashboard on different machines. Adopting the existing spelling makes the
-    behaviour identical everywhere, and does it without silently lowercasing a name the
-    user chose.
+    Keeps behaviour the same on case-insensitive (Windows/macOS) and Linux filesystems.
     """
     _validate_name(project, "project name")
     folded = project.casefold()
@@ -1259,17 +1028,11 @@ def _validate_name(value: str, label: str) -> None:
 def _generate_run_id(storage: Storage, project: str) -> str:
     """``<project>_<UTC timestamp>_<4 hex>``.
 
-    Run IDs must be unique across **all** projects, not just within one: the server
-    resolves a run by scanning every project and taking the first directory with a matching
-    name, so two projects sharing a run ID make one of them unreachable — and because the
-    tag and description endpoints resolve the same way, an edit aimed at one can land in
-    the other. Embedding the project makes that collision structurally impossible rather
-    than merely unlikely, which is what DATA-CONTRACT 8.3 recommends and what a bare UUID
-    does not give: a UUID is unique but says nothing, and this ID is legible in a URL.
+    IDs must be unique across all projects since the server looks runs up by ID alone.
+    Including the project name guarantees that and keeps the ID readable.
     """
-    # Only the timestamp and the random suffix carry uniqueness, so a very long project
-    # name can be truncated in the prefix without weakening anything; a 260-character path
-    # limit is a real constraint on Windows.
+    # Truncating the prefix is safe (uniqueness comes from the suffix) and helps with
+    # Windows path limits.
     prefix = project[:48]
     for _ in range(8):
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -1286,17 +1049,10 @@ def _generate_run_id(storage: Storage, project: str) -> str:
 
 
 def flatten_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Flatten a config to the top-level scalars both of the reader's parsers can see.
+    """Flatten a config to top-level snake_case scalars.
 
-    The file is parsed twice by two functions that disagree: the run page flattens nested
-    objects exactly one level and drops everything deeper, while the comparison table drops
-    nested objects entirely. A hyperparameter nested two deep is therefore invisible on one
-    page and a hyperparameter nested one deep is invisible on the other. Flattening here,
-    with a separator this module controls, is the only shape both readers agree on.
-
-    Sequences become comma-joined strings rather than arrays: an array flattens by numeric
-    index into ``layers0``, ``layers1``, which is meaningless in a parameters table, and
-    vanishes altogether in the comparison table.
+    The run page and comparison table handle nesting differently, so only flat keys show
+    up in both. Nested keys join with ``_``; sequences become comma-joined strings.
     """
     flat: dict[str, Any] = {}
     _flatten_into(flat, config, prefix="")
@@ -1318,13 +1074,7 @@ def _flatten_into(flat: dict[str, Any], value: Mapping[str, Any], prefix: str) -
 
 
 def _normalise_key(key: str) -> str:
-    """Lowercase snake_case, so the reader's lossy camelCase transform is reversible.
-
-    ``learning_rate``, ``learning-rate``, ``learning rate`` and ``learning_RATE`` all reach
-    the UI as ``learningRate`` and silently overwrite one another. Normalising here means
-    two config keys that would collide in the UI collide *before* they are written, where a
-    warning is possible.
-    """
+    """Lowercase snake_case, so keys that would collide in the UI collide here and warn."""
     return "_".join(part.lower() for part in _SEPARATORS.split(str(key)) if part)
 
 
@@ -1334,8 +1084,7 @@ def _config_scalar(value: Any) -> Any:
     if isinstance(value, int):
         return value
     if isinstance(value, float):
-        # A non-finite float is not legal JSON and would cost the run every parameter, not
-        # just this one — the whole file fails to parse.
+        # Non-finite floats would make the whole file invalid JSON.
         return value if math.isfinite(value) else None
     if isinstance(value, (list, tuple, set, frozenset)):
         return ",".join(str(item) for item in value)
@@ -1348,12 +1097,7 @@ def _config_scalar(value: Any) -> Any:
 
 
 def _iso(moment: datetime) -> str:
-    """ISO 8601 with an explicit offset, always.
-
-    The server parses these with ``new Date(...)``, which reads a bare local timestamp as
-    local time *in the server's zone* — so a run recorded in one timezone and viewed in
-    another silently shifts by hours.
-    """
+    """ISO 8601 with an explicit offset, so readers in other timezones don't shift it."""
     return moment.isoformat(timespec="milliseconds")
 
 
@@ -1372,8 +1116,7 @@ def _as_step(step: Any) -> int:
 
 
 def _as_number(value: Any) -> float | int:
-    """Keep whole numbers whole. Confusion-matrix cells are counts, and a count rendered
-    as ``812.0`` in a table reads as a rounding error that is not there."""
+    """Keep whole numbers as ints so counts don't render as ``812.0``."""
     if isinstance(value, bool):
         return int(value)
     if isinstance(value, int):
@@ -1383,6 +1126,6 @@ def _as_number(value: Any) -> float | int:
 
 
 def _slug(value: str) -> str:
-    """A filesystem- and id-safe fragment for a class name that came from a dataset."""
+    """Filesystem- and id-safe version of a class name."""
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_")
     return cleaned or "class"

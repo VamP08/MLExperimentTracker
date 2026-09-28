@@ -31,7 +31,7 @@
   padding-left: 33px;
   padding-right: 36px;
 }
-/* The native clear affordance differs across browsers; the button beside it replaces it. */
+/* Hide the native clear button; the one next to the input replaces it. */
 .exp-search-input::-webkit-search-cancel-button {
   appearance: none;
 }

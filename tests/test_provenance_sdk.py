@@ -1,18 +1,7 @@
-"""Provenance as the SDK actually delivers it: captured by ``init()``, read back off disk.
+"""Provenance through the SDK: captured by ``init()``, read back off disk via Storage.
 
-``tests/test_provenance.py`` covers the capture layer in isolation. This file covers the
-wiring, and the wiring has its own failure modes: a manifest captured but never written, a
-patch written under a text handle, a dataset hashed into an object nobody serialises, and —
-the one that matters most — a capture failure that takes the training run down with it.
-
-Every assertion therefore reads the run back through :class:`Storage` rather than asking
-the ``Run`` object what it believes. The SDK's contract is the bytes it leaves behind; a
-test that trusted the in-memory manifest would pass while ``provenance.json`` was empty.
-
-The repositories are real. ``init()`` captures the *current working directory*, so each
-test chdirs into a throwaway repo built with the real ``git`` binary — which is also what
-makes the patch test meaningful, since the property being claimed is that the captured
-bytes apply, not that some bytes were produced.
+test_provenance.py covers the capture layer alone. Each test here chdirs into a real
+throwaway git repo, since ``init()`` captures the cwd.
 """
 
 from __future__ import annotations
@@ -40,7 +29,7 @@ PROJECT = "prov"
 
 
 def _git(cwd: Path, *args: str) -> str:
-    """Run git for test setup. Unlike the code under test, this one is allowed to fail."""
+    """Run git for test setup; raises on failure."""
     result = subprocess.run(
         ["git", *args],
         cwd=str(cwd),
@@ -61,8 +50,7 @@ def _write(path: Path, text: str) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_leaked_runs():
-    """A run left live would be finished by this process's atexit hook, into a temporary
-    directory that no longer exists, at a point where failures are invisible."""
+    """Finish leftover runs so atexit doesn't write into a deleted tmp dir."""
     yield
     for run in list(run_module._ACTIVE.values()):
         try:
@@ -73,12 +61,10 @@ def _no_leaked_runs():
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A repository with one commit on ``main``.
+    """A repo with one commit on ``main``.
 
-    ``core.autocrlf=false`` locally, because Git for Windows sets it in its *system*
-    config: with it on, the checkout writes CRLF where the committed content is LF and a
-    patch that is correct still fails to apply. That is a caveat of replaying on Windows,
-    and pinning it here keeps it out of the assertions.
+    autocrlf is off because Git for Windows enables it system-wide, and CRLF checkouts
+    make correct patches fail to apply.
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -96,14 +82,12 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def store(tmp_path: Path) -> Path:
-    """The storage root, deliberately outside the repository — a run directory inside the
-    worktree would show up in its own untracked list and in its own diff."""
+    """Storage root outside the repo, so runs don't show up in their own diff."""
     return tmp_path / "store"
 
 
 def start(store: Path, **kwargs):
-    """Signals are not captured in-process: installing a SIGINT handler here would replace
-    the one pytest relies on."""
+    """Start a run without signal capture (it would replace pytest's SIGINT handler)."""
     kwargs.setdefault("capture_signals", False)
     kwargs.setdefault("project", PROJECT)
     return met.init(storage_path=store, **kwargs)
@@ -137,9 +121,8 @@ def test_a_run_in_a_repository_writes_a_manifest_that_reads_back(
     assert git["dirty"] is False
     assert git["diff_file"] is None
 
-    # The non-git blocks are captured whole or empty; none of them may be missing, because
-    # a reader distinguishes "not recorded" from "recorded as nothing" by the block's
-    # presence and nothing else.
+    # Non-git blocks must always be present; presence is how "not recorded" differs from
+    # "recorded as nothing".
     assert written["python"]["version"]
     assert written["platform"]["system"]
     assert isinstance(written["packages"], dict)
@@ -148,20 +131,14 @@ def test_a_run_in_a_repository_writes_a_manifest_that_reads_back(
     assert written["captured_at"]
     assert written["datasets"] == []
 
-    # The manifest is the SDK's own view too, and the two must agree: `run.provenance` is
-    # what a caller inspects, and a copy that drifted from the file would be a lie with a
-    # convenient API.
+    # run.provenance must match the file.
     assert run.provenance == written
 
 
 def test_the_manifest_does_not_disturb_what_a_1_0_reader_sees(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The 1.1 bump is additive: two new files, and nothing that already existed changed.
-
-    Asserted from the reader's side because that is where the claim would break — the run
-    object served for the dashboard must be identical whether or not a manifest is there.
-    """
+    """The 1.1 bump is additive: the served run object is the same with or without a manifest."""
     monkeypatch.chdir(repo)
     with start(store, run_id="with_manifest") as with_manifest:
         with_manifest.log({"loss": 0.5}, step=1)
@@ -178,15 +155,14 @@ def test_the_manifest_does_not_disturb_what_a_1_0_reader_sees(
     assert {k: v for k, v in first.items() if k not in volatile} == {
         k: v for k, v in second.items() if k not in volatile
     }
-    # The one scan that does pick up stray files looks only inside `artifacts/`, so the
-    # manifest and the patch can never surface as artifacts.
+    # Artifact scan only looks in artifacts/, so manifest and patch never show up there.
     assert first["artifacts"] == [] == second["artifacts"]
 
 
 def test_the_captured_patch_round_trips_through_storage(
     repo: Path, store: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The bytes on disk must be the bytes that were hashed, and they must still apply."""
+    """Patch on disk matches its recorded hash and still applies to a clone."""
     _write(repo / "train.py", "def main():\n    # uncommitted\n    return 42\n")
     _write(repo / "staged.py", "STAGED = True\n")
     _git(repo, "add", "staged.py")
@@ -204,8 +180,7 @@ def test_the_captured_patch_round_trips_through_storage(
 
     patch = Storage(store).read_patch(PROJECT, run.id)
     assert patch is not None
-    # Byte-exact, not merely non-empty: a patch written through a text handle on Windows
-    # gains a CR per line, survives every plausible smoke test, and applies to nothing.
+    # Byte-exact: a text-mode write on Windows adds CRs and the patch stops applying.
     assert len(patch) == git["diff_bytes"]
     assert hashlib.sha256(patch).hexdigest() == git["diff_sha256"]
     assert b"staged.py" in patch and b"uncommitted" in patch
@@ -230,7 +205,7 @@ def test_the_captured_patch_round_trips_through_storage(
 def test_a_run_outside_a_repository_still_succeeds(
     tmp_path: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The common case for a notebook or a scratch directory, and it must be unremarkable."""
+    """Common for notebooks and scratch dirs."""
     plain = tmp_path / "plain"
     plain.mkdir()
     monkeypatch.chdir(plain)
@@ -247,7 +222,7 @@ def test_a_run_outside_a_repository_still_succeeds(
     assert git["diff_file"] is None
     assert not (run.path / PATCH_FILE).exists()
 
-    # Everything that does not need a repository is still captured.
+    # Non-git fields are still captured.
     assert written["python"]["version"]
     assert written["command"]["argv"]
 
@@ -271,8 +246,7 @@ def test_provenance_false_writes_no_file(
 def test_capture_diff_false_writes_a_manifest_but_no_patch(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The middle setting, and the one that has to be honest: the tree was dirty and the
-    diff was not kept, which is a different statement from "the tree was clean"."""
+    """Tree is still reported dirty; only the diff is skipped."""
     _write(repo / "train.py", "def main():\n    return 99\n")
     monkeypatch.chdir(repo)
 
@@ -299,12 +273,7 @@ def test_capture_diff_false_writes_a_manifest_but_no_patch(
 def test_a_capture_that_raises_leaves_a_usable_run(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The single most important property in this file.
-
-    ``capture()`` has no exception path today, so this monkeypatches one in: the guarantee
-    has to hold against a failure nobody anticipated, which is the only kind that ever
-    reaches a user's training job.
-    """
+    """A capture failure must not break the run. capture() has no raise path, so patch one in."""
     monkeypatch.chdir(repo)
 
     def explode(*args: object, **kwargs: object):
@@ -329,7 +298,7 @@ def test_a_capture_that_raises_leaves_a_usable_run(
 def test_an_unwritable_manifest_leaves_a_usable_run(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The other half: capture succeeded and the *write* failed. Same outcome required."""
+    """Capture works but the manifest write fails; the run must still complete."""
     monkeypatch.chdir(repo)
     monkeypatch.setattr(Storage, "write_provenance", lambda *args, **kwargs: False)
 
@@ -359,8 +328,7 @@ def test_datasets_given_to_init_are_hashed_into_the_manifest(
     written = manifest_of(store, run.id)
     assert written is not None
     (entry,) = written["datasets"]
-    # The path is recorded as given, not resolved: a relative path is what stays comparable
-    # against a later run launched from the same directory.
+    # Path kept as given (not resolved) so it compares across runs from the same dir.
     assert entry["path"] == "data/train.csv"
     assert entry["algorithm"] == "sha256"
     assert entry["sha256"] == entry["digest"] == provenance.hash_path(data)["digest"]
@@ -371,11 +339,7 @@ def test_datasets_given_to_init_are_hashed_into_the_manifest(
 def test_log_dataset_after_init_updates_the_manifest(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The hook that makes "which data produced this model" answerable mid-script.
-
-    A dataset is usually assembled after the run starts, so recording one has to be a
-    normal call rather than a constructor argument — and it has to survive a re-read.
-    """
+    """Datasets logged mid-run are written to the manifest and survive a re-read."""
     monkeypatch.chdir(repo)
     tree = repo / "data" / "shards"
     _write(tree / "a.bin", "aaaa")
@@ -401,8 +365,7 @@ def test_log_dataset_after_init_updates_the_manifest(
         assert written["datasets"][0]["digest"] == first["digest"]
         assert run.provenance == written
 
-        # Re-logging the same identity replaces rather than appends: two entries claiming
-        # one dataset with different digests is a record no verifier can act on.
+        # Re-logging the same dataset replaces the entry instead of appending.
         _write(tree / "c.bin", "cccc")
         third = run.log_dataset("data/shards", name="training")
         assert third["digest"] != first["digest"]
@@ -410,7 +373,7 @@ def test_log_dataset_after_init_updates_the_manifest(
         assert len(rewritten["datasets"]) == 2
         assert rewritten["datasets"][0]["digest"] == third["digest"]
 
-        # Amending the manifest must not disturb the rest of it.
+        # The rest of the manifest is untouched.
         assert rewritten["git"] == written["git"]
         assert rewritten["captured_at"] == written["captured_at"]
 
@@ -418,7 +381,7 @@ def test_log_dataset_after_init_updates_the_manifest(
 def test_log_dataset_never_raises_over_a_path_that_is_not_there(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A typo in a dataset path costs the dataset field. It never costs the run."""
+    """A bad dataset path records an error; the run carries on."""
     monkeypatch.chdir(repo)
     with start(store) as run:
         entry = run.log_dataset("data/does_not_exist.csv")
@@ -434,10 +397,9 @@ def test_log_dataset_never_raises_over_a_path_that_is_not_there(
 def test_log_dataset_without_a_manifest_hashes_but_writes_nothing(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``provenance=False`` means no file, and calling ``log_dataset`` does not undo it.
+    """With provenance=False, log_dataset still hashes but doesn't create a manifest.
 
-    Writing a manifest here would produce one whose git block is empty for a reason nothing
-    recorded — indistinguishable, to a later check, from "not a repository".
+    One written here would have an empty git block that looks like "not a repository".
     """
     data = repo / "data.csv"
     _write(data, "x\n1\n")
@@ -468,9 +430,7 @@ def test_log_dataset_is_refused_after_the_run_has_finished(
 def test_the_environment_block_is_an_allowlist_and_nothing_else(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The rule that has to hold at the SDK boundary, not only in the capture layer: this
-    manifest lands in a directory users copy around, and a process environment routinely
-    holds an API key three variables away from ``OMP_NUM_THREADS``."""
+    """Only allowlisted env vars reach the manifest; secrets must never be captured."""
     monkeypatch.chdir(repo)
     monkeypatch.setenv("OMP_NUM_THREADS", "3")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "sk-live-do-not-capture")
@@ -487,8 +447,7 @@ def test_the_environment_block_is_an_allowlist_and_nothing_else(
     assert "HF_TOKEN" not in environment
     assert "MY_HARMLESS_VAR" not in environment
 
-    # Belt and braces, at the level that actually matters: no captured *value* is one of
-    # the secrets, whatever key it might have arrived under.
+    # Also check values, whatever key they came under.
     assert not any("do-not-capture" in value or "do_not_capture" in value
                    for value in environment.values())
 
@@ -496,7 +455,7 @@ def test_the_environment_block_is_an_allowlist_and_nothing_else(
 def test_an_allowlisted_name_that_looks_like_a_credential_is_redacted(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nothing on the allowlist matches today. This fires the day somebody extends it."""
+    """Guards future allowlist additions; nothing on it looks like a credential today."""
     monkeypatch.chdir(repo)
     monkeypatch.setattr(provenance, "ENV_ALLOWLIST", ("OMP_NUM_THREADS", "WANDB_API_KEY"))
     monkeypatch.setenv("OMP_NUM_THREADS", "2")
@@ -513,8 +472,7 @@ def test_an_allowlisted_name_that_looks_like_a_credential_is_redacted(
 def test_the_command_block_records_the_command_that_ran(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``argv`` verbatim, because a command line with its flags stripped is not the command
-    that ran — it would make a replay wrong rather than incomplete."""
+    """argv is recorded verbatim, flags included."""
     monkeypatch.chdir(repo)
     with start(store) as run:
         pass
@@ -549,13 +507,9 @@ def test_an_enormous_untracked_list_is_capped_and_says_so(
 def test_capture_cost_is_measured_rather_than_assumed(
     repo: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Hashing a dataset is not free, and the number belongs in the record.
+    """Print how long capture and dataset hashing take.
 
-    The bounds asserted are deliberately loose — this runs on whatever CI machine exists
-    and a tight timing assertion would be a flake, not a guarantee. What is worth pinning
-    is the shape: ``init()`` without datasets costs a handful of git calls and one pass
-    over the installed distributions, and hashing is bounded by disk throughput and scales
-    with the data. The printed line is the measurement.
+    Bounds are loose on purpose so this doesn't flake on slow CI; the printout is the result.
     """
     monkeypatch.chdir(repo)
 
@@ -600,6 +554,6 @@ def test_capture_cost_is_measured_rather_than_assumed(
         f"\n  init(datasets=[{total_mb:.0f} MiB])       {with_data_seconds * 1000:8.1f} ms"
     )
 
-    # A capture that took a minute would be a defect regardless of the machine.
+    # A minute would be a bug on any machine.
     assert capture_seconds < 60.0
     assert with_data_seconds < 120.0

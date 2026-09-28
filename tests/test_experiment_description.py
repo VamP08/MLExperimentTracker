@@ -1,20 +1,8 @@
-"""The experiment description a user types survives a reload (GAPS M3).
+"""An experiment description set via PATCH survives a reload.
 
-``PATCH /api/experiment/{id}`` has always written ``project_metadata.json``, and until
-this was fixed nothing ever opened it. The edit returned 200, the page updated its own
-state, and the next load quietly replaced it with the description derived from the first
-run's notes. A silent revert is worse than a refusal: there is no error to report and
-nothing on screen to point at.
-
-So these tests pin the round trip rather than the write. What a PATCH leaves on disk is
-only interesting if a later, unrelated reader picks it up — which is why the survival test
-builds a second :class:`Storage` instead of reusing the one that did the writing.
-
-They also pin what must *not* change. The derivation is still the answer when no
-description has been set, a sidecar somebody corrupted degrades to that derivation instead
-of raising, an unaddressable project name is still a 404 that creates nothing, and
-``project_metadata.json`` stays invisible to the run listing — it sits beside the run
-directories, and the listing returns directories only.
+It used to be written to project_metadata.json but never read back. These tests cover the
+round trip, the fallback to a description derived from run notes, corrupt sidecars, 404s,
+and the sidecar staying out of the run listing.
 """
 
 from __future__ import annotations
@@ -33,8 +21,7 @@ EMPTY_PROJECT = "vision-cnn"
 RUN_FIRST = "churn-mlp_20260813T090000Z_0001"
 RUN_SECOND = "churn-mlp_20260813T100000Z_0002"
 
-#: The description the reader derives for ``PROJECT``: the first run in sorted order whose
-#: ``notes`` are non-empty. ``RUN_FIRST`` has none, so it comes from ``RUN_SECOND``.
+# Derived from the first run (sorted) with non-empty notes, i.e. RUN_SECOND.
 DERIVED = "swept dropout, nothing moved"
 
 
@@ -80,8 +67,7 @@ def _sidecar(root: Path, project: str = PROJECT) -> dict:
 def test_a_patched_description_is_read_back_on_every_experiment_route(
     client: TestClient, root: Path
 ) -> None:
-    """The reload the user actually performs. Three routes render this string, and the
-    dashboard is the one they land on first."""
+    """All three routes that show the description return the patched value."""
     typed = "Churn baseline. Do not delete — the Q3 numbers came from here."
 
     response = client.patch(f"/api/experiment/{PROJECT}", json={"description": typed})
@@ -98,8 +84,7 @@ def test_a_patched_description_is_read_back_on_every_experiment_route(
 
 
 def test_the_description_survives_a_fresh_storage_instance(root: Path) -> None:
-    """The write is on disk, not in the writer. A second `Storage` — a restarted server,
-    or the CLI — reads the same string, which is what "survives a reload" means."""
+    """A second Storage (e.g. a restarted server) reads the same value."""
     assert Storage(root).update_experiment_description(PROJECT, PROJECT, "a later note") is True
 
     reader = Storage(root)
@@ -110,8 +95,6 @@ def test_the_description_survives_a_fresh_storage_instance(root: Path) -> None:
 
 
 def test_a_stored_description_outranks_the_run_derivation(storage: Storage) -> None:
-    """Both sources are present. The one the user typed wins — the derivation exists to
-    have something to show, not to have the last word."""
     assert storage.read_experiment(PROJECT)["description"] == DERIVED
     storage.update_experiment_description(PROJECT, PROJECT, "the real description")
     assert storage.read_experiment(PROJECT)["description"] == "the real description"
@@ -125,8 +108,7 @@ def test_only_the_patched_project_changes(client: TestClient, root: Path) -> Non
 
 
 def test_the_patch_preserves_keys_it_did_not_write(storage: Storage, root: Path) -> None:
-    """Read-modify-write, for the same reason the tags patch does it: a key a later
-    version adds must survive a description edit made by this one."""
+    """Read-modify-write, so unknown keys from newer versions survive."""
     _write_json(
         root / PROJECT / PROJECT_METADATA_FILE,
         {"description": "old", "created_by": "someone", "format_version": "1.1"},
@@ -151,8 +133,7 @@ def test_the_derivation_still_applies_when_the_file_is_absent(storage: Storage) 
 
 
 def test_clearing_the_description_restores_the_derivation(client: TestClient) -> None:
-    """An empty box asks for the default back. Rendering an experiment with no description
-    at all reads as a broken page, and the sidecar stays on disk either way."""
+    """An empty description falls back to the derived one."""
     client.patch(f"/api/experiment/{PROJECT}", json={"description": "temporary"})
     assert client.patch(f"/api/experiment/{PROJECT}", json={"description": ""}).status_code == 200
     assert client.get(f"/api/experiment/{PROJECT}").json()["description"] == DERIVED
@@ -175,9 +156,7 @@ def test_clearing_the_description_restores_the_derivation(client: TestClient) ->
 def test_a_malformed_sidecar_degrades_to_the_derivation(
     client: TestClient, root: Path, label: str, payload: str
 ) -> None:
-    """Nothing here raises. Every read path in this module answers a corrupt file the way
-    it answers an absent one, because a 500 on the experiment page would make a file no
-    user knows exists take down the page they were looking at."""
+    """A corrupt sidecar is treated as absent instead of causing a 500."""
     (root / PROJECT / PROJECT_METADATA_FILE).write_text(payload, encoding="utf-8")
 
     response = client.get(f"/api/experiment/{PROJECT}")
@@ -190,8 +169,7 @@ def test_a_malformed_sidecar_degrades_to_the_derivation(
 def test_a_malformed_sidecar_is_overwritten_rather_than_merged(
     storage: Storage, root: Path
 ) -> None:
-    """There is nothing to merge with, so the edit still has to work: a user who corrupts
-    this file must be able to fix it from the UI."""
+    """A corrupt sidecar can still be fixed from the UI."""
     (root / PROJECT / PROJECT_METADATA_FILE).write_text("not json", encoding="utf-8")
     assert storage.update_experiment_description(PROJECT, PROJECT, "repaired") is True
     assert storage.read_experiment(PROJECT)["description"] == "repaired"
@@ -212,9 +190,8 @@ def test_an_unaddressable_or_unknown_experiment_is_404_and_creates_nothing(
     before = sorted(p.name for p in root.iterdir())
     response = client.patch(f"/api/experiment/{payload}", json={"description": "x"})
 
-    # A payload carrying an encoded separator survives routing as a real one and matches
-    # no route, so it is refused before the handler; a single-segment name reaches the
-    # handler and is refused there. Both are 404 in the one error shape this API uses.
+    # Encoded separators decode into extra path segments and match no route; single-segment
+    # names reach the handler. Either way it's a 404 with the usual error shape.
     assert response.status_code == 404
     assert set(response.json()) == {"message"}
     assert sorted(p.name for p in root.iterdir()) == before
@@ -228,9 +205,7 @@ def test_an_unknown_experiment_is_refused_by_the_handler(client: TestClient) -> 
 
 
 def test_the_sidecar_is_not_a_run(client: TestClient, storage: Storage) -> None:
-    """It is a file beside the run directories, and the listing returns directories only —
-    verified rather than assumed, because a sidecar that counted as a run would depress
-    every success rate on the dashboard by inventing a run with no metadata."""
+    """The sidecar must not show up as a run (it would skew dashboard stats)."""
     client.patch(f"/api/experiment/{PROJECT}", json={"description": "mine"})
 
     assert storage.list_runs(PROJECT) == [RUN_FIRST, RUN_SECOND]
@@ -246,8 +221,7 @@ def test_the_sidecar_is_not_a_run(client: TestClient, storage: Storage) -> None:
 def test_a_run_description_edit_does_not_touch_the_experiment_description(
     client: TestClient, root: Path
 ) -> None:
-    """Two descriptions, two files. The run one writes ``summary.notes``, which is also
-    what the derivation reads — so this is the case where the two could collide."""
+    """The run description writes ``summary.notes``, which the derivation also reads."""
     client.patch(f"/api/experiment/{PROJECT}", json={"description": "the experiment"})
     assert client.patch(
         f"/api/run/{RUN_FIRST}/description", json={"description": "the run"}

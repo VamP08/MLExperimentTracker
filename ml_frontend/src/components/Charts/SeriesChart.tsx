@@ -11,7 +11,7 @@ export interface SeriesPoint {
 interface SeriesChartProps {
   name: string;
   data: SeriesPoint[];
-  /** Position in the run's series list; picks one of the five spectral series colours. */
+  /** Index in the run's series list; picks the series colour. */
   index: number;
 }
 
@@ -20,11 +20,8 @@ const H = 110;
 const PAD = { l: 34, r: 6, t: 6, b: 18 };
 
 /**
- * One metric series as a compact line chart: latest value, the curve, and its extremes.
- *
- * Only numeric points are drawn — the format puts no type check on metric values, so a
- * string logged under a metric name is skipped here rather than breaking the axis. A series
- * with a single point still shows its value, with no line to draw.
+ * One metric series as a small line chart: latest value, curve and extremes.
+ * Non-numeric points are skipped, since metric values aren't type-checked.
  */
 const SeriesChart = ({ name, data, index }: SeriesChartProps) => {
   const clip = useId();

@@ -8,9 +8,7 @@ interface Props {
   runId: string;
 }
 
-// The recognised `type` literals from artifacts.jsonl. Each renderer accepts two
-// spellings, and both are listed here so the tab and the renderer agree on what
-// counts as present.
+// Recognised `type` values from artifacts.jsonl. Each renderer accepts both spellings.
 const MATRIX_TYPES = ['confusion_matrix', 'classification_report'];
 const ROC_TYPES = ['roc_curve', 'roc_auc'];
 const IMPORTANCE_TYPES = ['feature_importance', 'feature_importances'];
@@ -72,8 +70,7 @@ const Evaluation: React.FC<Props> = ({ runId }) => {
   const hasROC = types.some((type) => ROC_TYPES.includes(type));
   const hasImportance = types.some((type) => IMPORTANCE_TYPES.includes(type));
 
-  // Most runs log none of these. Saying so once, quietly, is the whole of the
-  // empty state — it is not a failure and there is nothing to retry.
+  // Most runs log none of these. Not an error, so just one quiet line.
   if (!hasMatrix && !hasROC && !hasImportance) {
     return (
       <div className="stack">

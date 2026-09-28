@@ -116,8 +116,7 @@ const Metrics = ({ runId }: MetricsProps) => {
 
       <MetricsChart runId={runId} />
 
-      {/* Renders nothing unless the run logged `gradient/<layer>/<stat>` series,
-          which most runs do not. */}
+      {/* Renders nothing unless the run logged `gradient/<layer>/<stat>` series. */}
       <GradientVisualization runId={runId} />
     </div>
   );

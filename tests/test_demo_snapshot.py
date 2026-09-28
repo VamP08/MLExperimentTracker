@@ -1,28 +1,8 @@
-"""Tests for the static demo's snapshot builder.
+"""Tests for scripts/build_demo_snapshot.py.
 
-``scripts/build_demo_snapshot.py`` records the real API's real answers so the static demo
-build can replay them without a server. Everything that makes that trustworthy is a
-property of the file it writes, so this is where those properties are pinned:
-
-* **It is reproducible.** Two builds with the same seed produce the same bytes. That is
-  what makes a snapshot reviewable — a diff means the API changed, not that the clock did —
-  and it is the claim most likely to rot, because a live SDK run reads wall clocks, invents
-  a run id from one, and shells out to git.
-* **It is complete.** The route set is derived from the frontend source here rather than
-  written down twice, so a component that starts calling a new endpoint fails this test
-  instead of failing silently in the deployed demo with an unexplained empty panel.
-* **It carries a real manifest.** The Provenance tab is the most distinctive thing in this
-  dashboard and the generator does not write manifests, so one run in the snapshot is a
-  genuine SDK capture of a genuine commit. A manifest that stopped being captured would
-  leave the demo showing its empty state everywhere, which reads as a feature nobody built.
-* **It is a file a browser can parse, and small enough to send one.** Python's JSON writer
-  emits ``NaN`` and ``Infinity`` for non-finite floats; ``JSON.parse`` rejects both, and a
-  single metric that went non-finite would take the whole demo down at load.
-
-The builds are run as subprocesses rather than imported: the tracked script installs a
-SIGINT handler and the builder patches module globals for the length of the run, and
-neither belongs in the interpreter running the suite. Two builds cost about forty seconds,
-which is the price of testing the thing that ships rather than a cheaper imitation of it.
+Checks the snapshot is reproducible, covers every route the frontend calls, includes a real
+provenance manifest, is strict JSON a browser can parse, and stays under the size ceiling.
+Builds run as subprocesses because the builder patches module globals (about 40s for two).
 """
 
 from __future__ import annotations
@@ -40,30 +20,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "build_demo_snapshot.py"
 FRONTEND_SRC = REPO_ROOT / "ml_frontend" / "src"
 
-#: Pinned so two builds can be compared byte for byte. The build's own wall-clock stamp is
-#: not a function of the seed, and pretending otherwise would be the one piece of the file
-#: that lied about when it was made.
+# Pinned so two builds can be compared byte for byte.
 GENERATED = "2026-08-16T00:00:00+00:00"
 
-#: The ceiling the script enforces, restated here so a change to one is a visible change.
+# Same ceiling as the script, restated so a change to it shows up here.
 SIZE_CEILING = 2_000_000
 
-#: Routes the frontend calls that the snapshot deliberately does not carry, each with the
-#: reason. Listed one by one so a *new* uncaptured route cannot hide among them: this is an
-#: exemption list, and an exemption list that grows by accident is a coverage hole.
+# Frontend routes the snapshot skips on purpose. Listed one by one so a new uncaptured
+# route can't slip in.
 DELIBERATELY_ABSENT = {
-    # Attachments streamed from disk. A static build has no server to attach anything from,
-    # so the demo disables the two download controls rather than record a response for them.
+    # File downloads; no server in a static build, so the demo disables them.
     "/api/run/{}/logs/download": "download",
     "/api/run/{}/patch": "download",
-    # Writes. There is nothing behind the page to write to, and a recorded response would
-    # be a saved edit that vanishes on reload — worse than a control that says it is off.
+    # Writes; nothing to write to, so the demo disables them.
     "/api/run/{}/tags": "write",
     "/api/run/{}/description": "write",
 }
 
-#: Every test here rides on two builds in two subprocesses, so the whole module is slow by
-#: the marker's definition and is deselected with ``-m 'not slow'`` along with the rest.
+# Every test depends on two subprocess builds.
 pytestmark = pytest.mark.slow
 
 requires_git = pytest.mark.skipif(
@@ -104,11 +78,9 @@ def build(out: Path, work: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def builds(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
-    """Two builds, same arguments, same scratch directory, one after the other.
+    """Two builds with the same arguments and scratch dir.
 
-    The scratch directory is shared on purpose: the paths inside it are recorded in the
-    manifest — a manifest names the repository it was captured in — so two builds under
-    two different roots would differ for a reason that has nothing to do with determinism.
+    Same scratch dir because the manifest records paths inside it.
     """
     root = tmp_path_factory.mktemp("snapshot")
     work = root / "work"
@@ -141,9 +113,7 @@ def test_two_builds_with_the_same_seed_are_byte_identical(builds: tuple[Path, Pa
 
 @requires_git
 def test_the_stamp_is_recorded_rather_than_derived(snapshot: dict) -> None:
-    """``capturedAt`` is the only field the seed does not determine, which is why the build
-    accepts it as an argument — and why a caller that does not pass one gets the real time
-    rather than a convenient constant."""
+    """``capturedAt`` comes from ``--generated``, not from the seed."""
     assert snapshot["capturedAt"] == GENERATED
 
 
@@ -153,13 +123,9 @@ def test_the_stamp_is_recorded_rather_than_derived(snapshot: dict) -> None:
 
 
 def frontend_routes() -> set[str]:
-    """Every ``/api`` path the dashboard's source actually requests, as templates.
+    """Every ``/api`` path the frontend source requests, as templates.
 
-    Read out of the frontend rather than listed here, because a list here would be a second
-    copy of the truth and would go stale the first time a component gained an endpoint.
-    Comment lines are dropped before matching: several of them quote ``/api/runs/...``,
-    the pluralised path that was never a route (GAPS B9), and a scanner that believed its
-    own documentation would demand a capture of a URL nothing calls.
+    Comment lines are skipped: some mention ``/api/runs/...``, which was never a real route.
     """
     pattern = re.compile(r"""["'`](/api/[^"'`\s]*)["'`]""")
     found: set[str] = set()
@@ -174,12 +140,7 @@ def frontend_routes() -> set[str]:
 
 
 def normalise(path: str) -> str:
-    """Reduce a path to its template: ids and query strings out, ``{}`` in.
-
-    Applied to both sides of the comparison, so a captured
-    ``/api/run/cifar10-cnn_.../metrics`` and a source template ``/api/run/${runId}/metrics``
-    meet at ``/api/run/{}/metrics``.
-    """
+    """Reduce a path to a template: ids become ``{}``, query strings are dropped."""
     path = re.sub(r"\$\{[^}]*\}", "{}", path)
     path = path.split("?", 1)[0].rstrip("/")
     parts = path.split("/")
@@ -204,8 +165,7 @@ def test_the_capture_covers_every_route_the_frontend_calls(routes: dict[str, dic
 
 @requires_git
 def test_the_absent_routes_are_absent_on_purpose(routes: dict[str, dict]) -> None:
-    """The exemption list is only honest while it is exhaustive: a route that quietly
-    starts being captured should be removed from it rather than left as cover."""
+    """A route that starts being captured should come off the exemption list."""
     captured = {normalise(path) for path in routes}
     assert not (captured & set(DELIBERATELY_ABSENT))
 
@@ -231,23 +191,16 @@ def test_the_crawl_reaches_every_run_and_every_experiment(routes: dict[str, dict
 
 
 def body_of(entry: dict) -> object:
-    """The captured body, whichever key carries it.
-
-    Defined here rather than imported from the builder on purpose: these tests assert the
-    shape of the file the frontend parses, and a helper borrowed from the code that writes
-    it would agree with that code by construction even if both had drifted from the
-    contract in ``ml_frontend/src/lib/demoData.ts``.
-    """
+    """The captured body. Not imported from the builder, so the tests check it independently."""
     return entry["text"] if "text" in entry else entry["json"]
 
 
 @requires_git
 def test_the_file_matches_the_contract_the_frontend_parses(snapshot: dict) -> None:
-    """``lib/demoData.ts`` reads ``capturedAt``, ``source`` and ``routes``, and each entry
-    as ``json`` or ``text`` but never both. This is the seam between the two halves of the
-    demo, and nothing else in either test suite would notice if one half moved: the
-    frontend answers a mis-shaped entry with a 404 rather than an error, so the demo would
-    deploy as an empty dashboard captioned as a snapshot of real runs."""
+    """Matches what lib/demoData.ts reads: each entry has ``json`` or ``text``, never both.
+
+    The frontend treats a bad entry as a 404, so nothing else would catch drift.
+    """
     assert isinstance(snapshot["capturedAt"], str) and snapshot["capturedAt"]
     assert isinstance(snapshot["source"], str) and snapshot["source"]
     assert snapshot["source"] != "not captured yet"
@@ -270,8 +223,7 @@ def reject_constant(token: str) -> object:
 
 @requires_git
 def test_the_file_is_json_a_browser_would_accept(builds: tuple[Path, Path]) -> None:
-    """``json.load`` accepts ``NaN`` and ``Infinity``; the browser does not. A non-finite
-    metric reaching the file is therefore invisible to every check but this one."""
+    """No ``NaN``/``Infinity``: Python's json accepts them, ``JSON.parse`` doesn't."""
     json.loads(builds[0].read_text(encoding="utf-8"), parse_constant=reject_constant)
 
 
@@ -286,9 +238,7 @@ def test_every_captured_body_round_trips(routes: dict[str, dict]) -> None:
 
 @requires_git
 def test_the_csv_export_is_captured_as_text(routes: dict[str, dict]) -> None:
-    """It is the one route that does not answer JSON, and the Metrics tab reads it as a
-    string. Stored as anything else — a parsed table, a list of rows — the demo would have
-    to reassemble a file the server sent whole."""
+    """The only non-JSON route; the Metrics tab reads it as a string."""
     exports = [
         entry for path, entry in routes.items() if path.endswith("/metrics/export?format=csv")
     ]
@@ -300,7 +250,7 @@ def test_the_csv_export_is_captured_as_text(routes: dict[str, dict]) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# The manifest, and the runs that honestly have none
+# Provenance manifests
 # --------------------------------------------------------------------------------------
 
 
@@ -321,8 +271,7 @@ def test_at_least_one_run_carries_a_real_provenance_manifest(routes: dict[str, d
         assert git["available"] is True, path
         assert re.fullmatch(r"[0-9a-f]{40}", str(git["commit"])), path
         assert git["branch"] == "main", path
-        # A manifest with no dataset is legal and far less interesting: the content hash is
-        # the part that makes the tab evidence rather than metadata.
+        # No dataset is legal, but the demo should show a dataset hash.
         assert manifest["datasets"], path
         assert re.fullmatch(r"[0-9a-f]{64}", str(manifest["datasets"][0]["sha256"])), path
         assert manifest["python"]["version"], path
@@ -335,9 +284,7 @@ def test_at_least_one_run_carries_a_real_provenance_manifest(routes: dict[str, d
 
 @requires_git
 def test_the_runs_without_a_manifest_record_their_404s(routes: dict[str, dict]) -> None:
-    """The generated runs have no provenance, and the demo should show that rather than
-    hide it: the empty state is a real state, and recording the 404 is what lets the static
-    build reproduce it instead of spinning."""
+    """Generated runs have no manifest; their 404s are recorded so the demo shows the empty state."""
     missing = [
         entry
         for path, entry in routes.items()
@@ -355,8 +302,7 @@ def test_the_runs_without_a_manifest_record_their_404s(routes: dict[str, dict]) 
 
 @requires_git
 def test_the_snapshot_stays_under_the_size_ceiling(builds: tuple[Path, Path]) -> None:
-    """Every visitor downloads this. The ceiling is a budget, not a limit of the format —
-    exceed it and the fix is fewer runs or shorter histories, not a bigger number here."""
+    """Every visitor downloads this; fix an overrun with fewer runs, not a higher ceiling."""
     size = builds[0].stat().st_size
     assert size <= SIZE_CEILING, (
         f"the snapshot is {size} bytes, over the {SIZE_CEILING} byte budget — "

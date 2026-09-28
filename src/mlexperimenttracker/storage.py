@@ -1,17 +1,8 @@
-"""Every filesystem access in the product, read and write, in one module.
+"""All filesystem reads and writes, in one place.
 
-Two reasons it is one module rather than several. First, containment: user-supplied
-project names and run IDs arrive from URL path segments, and a traversal check is only
-worth anything if there is exactly one place that can open a file — so
-:meth:`Storage.resolve_within` is a choke point, not a utility. Second, parity: the read
-methods reproduce the shapes the existing React frontend already consumes, including the
-shapes that are defects, and keeping them adjacent makes the divergences visible instead
-of scattering them across the codebase.
-
-The reading half never raises. Missing and malformed degrade to ``None`` / ``[]`` / ``{}``
-exactly as the reader they replace does, because the frontend has no error path for most
-of these calls — an exception surfaces as a blank page, a degraded value surfaces as a
-blank field.
+Project names and run IDs come from URL segments, so every path goes through
+:meth:`Storage.resolve_within`. Reads return the shapes the React frontend expects and
+never raise: missing or malformed files become ``None`` / ``[]`` / ``{}``.
 """
 
 from __future__ import annotations
@@ -52,9 +43,8 @@ from .contract import (
 
 __all__ = ["Storage", "StorageError"]
 
-#: Per-project sidecar written by ``PATCH /api/experiment/{id}``. It sits beside the run
-#: directories rather than inside one, which is why it is named here and not in
-#: ``contract``: no run owns it, and a producer must never write it (DATA-CONTRACT §2).
+# Per-project file written by PATCH /api/experiment/{id}. Lives beside the run dirs, not in
+# one, so it's not in contract. The SDK never writes it.
 PROJECT_METADATA_FILE = "project_metadata.json"
 
 
@@ -63,10 +53,9 @@ class StorageError(Exception):
 
 
 class Storage:
-    """Rooted access to the experiment tree.
+    """Access to the experiment tree under one root.
 
-    The root is resolved once, at construction, so that a later ``chdir`` or a mutated
-    environment cannot move it out from under an in-flight run.
+    The root is resolved once so a later chdir or env change can't move it mid-run.
     """
 
     def __init__(self, root: str | Path | None = None) -> None:
@@ -75,8 +64,7 @@ class Storage:
             if env_root:
                 root = env_root
             else:
-                # The reader consults USERPROFILE then HOME; Path.home() covers both, and
-                # raises rather than silently writing to a relative path when neither is set.
+                # Path.home() covers USERPROFILE and HOME, and raises if neither is set.
                 root = Path.home() / DEFAULT_STORAGE_DIRNAME
         self.root: Path = Path(root).expanduser().resolve()
 
@@ -84,21 +72,15 @@ class Storage:
         return f"Storage(root={str(self.root)!r})"
 
     # ----------------------------------------------------------------------------------
-    # Containment — a security boundary, not a convenience
+    # Containment (security boundary)
     # ----------------------------------------------------------------------------------
 
     def resolve_within(self, *segments: str) -> Path | None:
-        """Join ``segments`` under the root, or return ``None`` if they do not belong there.
+        """Join ``segments`` under the root, or ``None`` if they would escape it.
 
-        Path parameters reach this function already URL-decoded, so ``%2f`` is a real
-        separator by the time it is seen. Each segment must therefore be a single path
-        component: no separator of either flavour, no drive prefix, no ``.`` or ``..``,
-        no NUL, nothing absolute. The resolved-prefix check afterwards is defence in
-        depth for whatever the per-segment rules did not anticipate.
-
-        Returns ``None`` rather than raising, because every caller treats an
-        unaddressable name as "not found" — that is what makes the check impossible to
-        forget at a call site.
+        Segments arrive URL-decoded, so each must be a single path component: no
+        separators, drive prefix, ``.``/``..``, NUL or absolute path. The resolved-prefix
+        check after that is a backstop. Callers treat ``None`` as not found.
         """
         for segment in segments:
             if not isinstance(segment, str) or not segment:
@@ -109,8 +91,7 @@ class Storage:
                 return None
             if "/" in segment or "\\" in segment:
                 return None
-            # Both flavours are checked on every platform: a POSIX server can be handed a
-            # Windows-shaped payload, and posixpath would happily call "C:foo" a filename.
+            # Check both flavours everywhere: posixpath treats "C:foo" as a plain filename.
             if ntpath.isabs(segment) or posixpath.isabs(segment):
                 return None
             if ntpath.splitdrive(segment)[0]:
@@ -119,8 +100,7 @@ class Storage:
         try:
             target = Path(self.root, *segments).resolve()
         except (OSError, ValueError):
-            # A name the platform cannot even resolve is not addressable either, and this
-            # function is the one place that must never raise into a caller.
+            # Unresolvable name: not addressable. This must never raise.
             return None
         if target != self.root and self.root not in target.parents:
             return None
@@ -137,13 +117,11 @@ class Storage:
     # ----------------------------------------------------------------------------------
 
     def list_projects(self) -> list[str]:
-        """Immediate subdirectories of the root. Loose files at the root are invisible,
-        which is what makes a project a directory and nothing else."""
+        """Immediate subdirectories of the root. Loose files are ignored."""
         return self._list_subdirectories(self.root)
 
     def list_runs(self, project: str) -> list[str]:
-        """Immediate subdirectories of a project. There is no third level — a run nested
-        under a date or sweep folder cannot be seen by the reader at all."""
+        """Immediate subdirectories of a project. Deeper nesting is not seen."""
         project_dir = self.project_path(project)
         if project_dir is None:
             return []
@@ -158,13 +136,10 @@ class Storage:
         return pairs
 
     def find_run(self, run_id: str) -> tuple[str, str] | None:
-        """First project containing a run of this name.
+        """First project (in sorted order) containing a run of this name.
 
-        Run IDs are only unique by convention, and this resolves collisions the way the
-        reader does — first match wins — which means an edit aimed at one project can
-        land in another. The one change made here is to iterate projects in sorted order
-        rather than in directory order, so at least the winner is the same on every
-        machine and every call.
+        Run IDs are only unique by convention, so on a collision the first match wins.
+        Sorting keeps the winner stable across machines.
         """
         for project in self.list_projects():
             run_dir = self.run_path(project, run_id)
@@ -185,11 +160,9 @@ class Storage:
     # ----------------------------------------------------------------------------------
 
     def read_run(self, project: str, run_id: str) -> dict | None:
-        """The full run object served by ``GET /api/run/:id``.
+        """The full run object for ``GET /api/run/:id``.
 
-        ``metadata.json`` is load-bearing: without it the run is invisible, and that is
-        the only file whose absence hides anything. Everything else degrades to an empty
-        table, a zero duration or a missing chart.
+        Returns ``None`` without ``metadata.json``; every other file is optional.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None or not run_dir.is_dir():
@@ -241,12 +214,7 @@ class Storage:
         }
 
     def read_latest_run(self) -> dict | None:
-        """The run with the greatest ``created_at``.
-
-        A run whose ``created_at`` is absent or unparseable can never win the comparison,
-        which is the reader's behaviour and worth preserving: it means a malformed run
-        cannot hijack the landing page.
-        """
+        """The run with the greatest ``created_at``. Unparseable dates never win."""
         latest: dict | None = None
         latest_at: float | None = None
         for project, run_id in self.list_all_runs():
@@ -271,18 +239,10 @@ class Storage:
         return self._build_experiment(project)
 
     def _read_project_description(self, project: str) -> str:
-        """The description a user set through ``PATCH /api/experiment/{id}``, or ``""``.
+        """The description set via ``PATCH /api/experiment/{id}``, or ``""``.
 
-        This is the read half of GAPS M3. The endpoint has always written
-        ``project_metadata.json`` and nothing has ever opened it, so an edit appeared to
-        save and reverted on the next load — the derived description reasserting itself,
-        silently, which is harder to diagnose than an error would have been.
-
-        Everything that is not a non-empty string is ``""`` and therefore falls through to
-        the derivation: a missing file, a file another tool wrote as an array, a truncated
-        one, a ``description`` that is a number. An explicitly emptied description falls
-        through too, which is deliberate — clearing the box asks for the default back, and
-        an experiment whose description renders as nothing looks like a broken page.
+        Anything other than a non-empty string gives ``""`` so the caller falls back to
+        the derived description. Clearing the box brings the default back.
         """
         project_dir = self.project_path(project)
         if project_dir is None:
@@ -307,19 +267,12 @@ class Storage:
         return latest
 
     def _build_experiment(self, project: str) -> dict:
-        """Aggregate one project the way the dashboard does.
+        """Aggregate one project for the dashboard.
 
-        Three of the counters below are wrong on purpose. ``totalRuns`` counts
-        directories, so a run with an unreadable ``metadata.json`` still depresses the
-        success rate while contributing nothing else; the state buckets read
-        ``summary.state`` literally and never consult ``metadata.state`` or the state
-        mapping, so ``initialized`` and ``interrupted`` fall into no bucket at all. Both
-        are reader defects. They are reproduced because the frontend's numbers have to
-        keep adding up the same way, and fixing them belongs with a frontend change.
-
-        The description is the one place this deliberately stops reproducing the reader:
-        a description stored in ``project_metadata.json`` wins over the derivation from
-        the first run's notes. See :meth:`_read_project_description`.
+        Known quirks kept so the frontend numbers stay consistent: ``totalRuns`` counts
+        directories (runs without metadata still lower the success rate), and the state
+        buckets read ``summary.state`` raw, so ``initialized``/``interrupted`` land in none.
+        A stored description beats the one derived from run notes.
         """
         run_ids = self.list_runs(project)
         total_runs = len(run_ids)
@@ -361,9 +314,7 @@ class Storage:
                 if created_at is not None and (last_activity is None or created_at > last_activity):
                     last_activity = created_at
 
-                # A non-list `tags` throws inside the reader's forEach and returns 500
-                # for the whole dashboard — one malformed run takes down the landing
-                # page for every project. Ignored here instead.
+                # Ignore non-list tags so one bad run can't break the whole dashboard.
                 raw_tags = metadata.get("tags")
                 if isinstance(raw_tags, list):
                     for tag in raw_tags:
@@ -373,14 +324,13 @@ class Storage:
                 if not description:
                     description = metadata.get("notes") or (summary.get("notes") if summary else "") or ""
 
-            # Deliberately outside the metadata guard: the reader sums duration for runs
-            # it otherwise ignores, so a hidden run still moves the average.
+            # Outside the metadata check on purpose: runs without metadata still count
+            # toward the average duration.
             duration = summary.get("duration") if summary else None
             if _is_number(duration):
                 total_duration += float(duration)
 
-        # GAPS M3: what the user typed beats what the runs imply. Read after the loop so
-        # an unreadable sidecar costs the stored description and nothing else.
+        # A user-set description wins over the derived one.
         description = self._read_project_description(project) or description
 
         success_rate = _js_round(completed_runs / total_runs * 100) if total_runs > 0 else 0
@@ -392,7 +342,7 @@ class Storage:
             "description": description or f"Experiment: {project}",
             "tags": list(tags),
             "runs": runs_data,
-            # Hardcoded empty by the reader: there is no event stream in the format.
+            # Always empty: the format has no event stream.
             "activityTimeline": [],
             "createdAt": _js_iso_from_epoch(last_activity),
             "stats": {
@@ -407,14 +357,10 @@ class Storage:
         }
 
     def read_experiment_runs(self, project: str) -> list[dict]:
-        """The comparison-table rows served by ``GET /api/experiment/:id/runs``.
+        """Comparison-table rows for ``GET /api/experiment/:id/runs``.
 
-        Two things differ from :meth:`read_run` on purpose. Metrics carry only ``latest``,
-        with no stat siblings. Parameters come from the *other* config reader — top-level
-        scalars only, nested objects dropped rather than flattened — so a run whose
-        hyperparameters are nested shows twelve parameters on its detail page and none
-        here. The frontend depends on both shapes as they are; unifying the two readers
-        is a change worth making, but it changes what the comparison table displays.
+        Unlike :meth:`read_run`: metrics are ``latest`` only, and parameters are top-level
+        scalars only (nested config is dropped, not flattened). The frontend relies on both.
         """
         rows: list[dict] = []
         for run_id in self.list_runs(project):
@@ -434,11 +380,10 @@ class Storage:
             rows.append(
                 {
                     "_id": run_id,
-                    # Always synthesised here, never metadata.name — the same run is
-                    # therefore named differently on the dashboard and in this table.
+                    # Not metadata.name, so this differs from the dashboard's name.
                     "name": f"Run {run_id}",
                     "status": map_state(state if isinstance(state, str) else None),
-                    # A formatted string, where the run-detail path emits a number.
+                    # A string here; read_run returns a number.
                     "duration": format_duration_no_hours(duration),
                     "startTime": metadata.get("created_at"),
                     "parameters": _extract_top_level_scalars(config),
@@ -452,11 +397,9 @@ class Storage:
     # ----------------------------------------------------------------------------------
 
     def read_metrics(self, project: str, run_id: str) -> list[dict]:
-        """Pivot the wide rows into one series per metric.
+        """Pivot the wide rows into one series per metric, in first-seen order.
 
-        Every non-reserved key on a line is a metric, with no type check, so a string
-        logged under a stray key becomes a series whose values are strings. Series appear
-        in the order their names were first seen, matching the reader.
+        Every non-reserved key is a metric; values are not type-checked.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -474,8 +417,7 @@ class Storage:
     def read_metrics_timeseries(
         self, project: str, run_id: str, metric: str | None = None
     ) -> list[dict]:
-        """Without ``metric``, the raw wide rows verbatim; with it, one row per step that
-        carries the key. ``absolute_timestamp`` is surfaced only on this path."""
+        """Raw rows without ``metric``; with it, one row per step that has the key."""
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
             return []
@@ -494,9 +436,7 @@ class Storage:
         ]
 
     def read_system_metrics(self, project: str, run_id: str) -> object:
-        """Verbatim, because the schema lives entirely in the frontend component that
-        renders it. Absent or malformed becomes ``{}``, which that component reads as
-        "no system metrics available"."""
+        """``system_metrics.json`` as-is, or ``{}`` if absent or malformed."""
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
             return {}
@@ -510,12 +450,9 @@ class Storage:
         return self._read_checkpoints_in(run_dir)
 
     def _read_checkpoints_in(self, run_dir: Path) -> list[dict]:
-        """Newest first, from the ``*.json`` sidecars only.
+        """Checkpoints newest first, from the ``*.json`` sidecars only.
 
-        Real weight files are invisible to the reader, and ``size`` is the sidecar's size
-        rather than the checkpoint's — both are reader limitations that a writer cannot
-        work around. Sidecars with an unparseable ``created_at`` sort last instead of
-        landing in an unspecified position.
+        ``size`` is the sidecar's size, not the weights'. Bad ``created_at`` sorts last.
         """
         checkpoints: list[dict] = []
         for entry in self._list_files(run_dir / CHECKPOINTS_DIR):
@@ -537,11 +474,8 @@ class Storage:
                     "size": size,
                 }
             )
-        # Tie-break on step: two checkpoints written in the same clock tick carry the
-        # same created_at, and a stable sort then returns them oldest-first, which is the
-        # opposite of what this method promises. A fast runner hits that constantly; a
-        # slow one almost never, which is how it reached CI green on one leg and red on
-        # two. Higher step is newer.
+        # Tie-break on step: checkpoints in the same clock tick share created_at, and the
+        # stable sort would return them oldest-first. This was flaky on fast CI runners.
         checkpoints.sort(
             key=lambda c: (
                 _parse_iso(c.get("createdAt")) or float("-inf"),
@@ -560,10 +494,7 @@ class Storage:
     def _process_artifacts(self, run_dir: Path, records: list[dict]) -> list[dict]:
         """Declared artifacts first, then a placeholder per loose file not already named.
 
-        The dedup is exact string equality on ``name``, so ``confusion_matrix.png`` on
-        disk does not match an ``artifacts.jsonl`` entry called ``confusion_matrix`` and
-        both are listed. Nothing here is downloadable — the format has no path field —
-        so the placeholders exist only to admit that the files are there.
+        Dedup is exact match on ``name``, so ``x.png`` on disk and an entry ``x`` both show.
         """
         artifacts: list[dict] = []
         for record in records:
@@ -575,8 +506,7 @@ class Storage:
                     "version": record.get("version"),
                     "createdAt": record.get("created_at"),
                     "fileCount": record.get("file_count") or 0,
-                    # Passed through with no key transform: this is the only payload in
-                    # the format that reaches the UI exactly as written.
+                    # Passed through as written, no camelCase transform.
                     "metadata": record.get("metadata") or {},
                 }
             )
@@ -609,22 +539,9 @@ class Storage:
     ) -> list[dict]:
         """Captured run output, oldest first, optionally filtered and paged.
 
-        ``level`` selects one severity exactly rather than "this level and above": the
-        vocabulary is a flat enum on disk with no ordering recorded anywhere, so ranking it
-        would be this method inventing a hierarchy that the writer never asserted. A UI
-        that wants "warnings and worse" asks twice, which is honest about what the file
-        says. The comparison folds case, because the value arrives from a query string, and
-        a level outside the vocabulary matches nothing — a filter that quietly stopped
-        filtering would show a user exactly the records they asked to be rid of.
-
-        ``offset`` then ``limit``, both clamped rather than validated — this is a read path
-        and every other read here answers an unanswerable question with an empty list. A
-        negative offset is zero, a negative or zero limit is no rows, and an offset past
-        the end is no rows.
-
-        A torn final line is dropped and the rest of the file is returned, exactly as
-        :meth:`read_jsonl` does for ``metrics.jsonl``, which is what makes appending from a
-        live training process safe to read at any moment.
+        ``level`` matches one level exactly (case-insensitive), not "this and above".
+        An unknown level matches nothing. ``offset``/``limit`` are clamped, not validated:
+        negative offset is 0, limit <= 0 gives no rows. A torn last line is dropped.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -651,27 +568,16 @@ class Storage:
         return records[start : start + count]
 
     def read_logs_text(self, project: str, run_id: str) -> str:
-        """The same records rendered as plain text, for the download button.
+        """Logs as plain text for download: elapsed seconds, level, source, message.
 
-        One line per record: the elapsed seconds the chart's x-axis uses, the level, the
-        source, then the message verbatim. Elapsed rather than wall clock because that is
-        the clock the rest of the run is recorded against — a log line and a metric point
-        at ``74.1`` are the same instant — and the wall-clock ``absolute_timestamp`` is a
-        field away in the JSONL for anyone correlating against another machine's log.
-
-        Rendering here rather than in the route keeps every read of the file in this
-        module, and means the CLI and the API produce byte-identical downloads.
+        Uses elapsed time (same clock as metrics). Shared by the CLI and the API.
         """
         return "".join(_log_line(record) for record in self.read_logs(project, run_id))
 
     def export_metrics_csv(self, project: str, run_id: str) -> str:
-        """Union of every key across every row, alphabetically, one row per line.
+        """Metrics as CSV: all keys sorted as columns, one row per line.
 
-        Unlike the reader this quotes per RFC 4180. The reader joins raw values with
-        commas, so a single string metric containing a comma shifts every column to its
-        right — silently, in a file the user opens in a spreadsheet and believes. That is
-        a data-corruption bug, not a formatting preference, so it is fixed here rather
-        than reproduced; the output is byte-identical whenever no value needs quoting.
+        Quotes per RFC 4180 so a value with a comma can't shift columns.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -691,12 +597,9 @@ class Storage:
     # ----------------------------------------------------------------------------------
 
     def create_run(self, project: str, run_id: str, metadata: dict) -> Path:
-        """Create the run directory and write ``metadata.json`` before anything else.
+        """Create the run directory and write ``metadata.json`` first.
 
-        Nothing else about a run matters until that file exists: without it the run
-        detail endpoint answers 404 and the experiment aggregation skips the run while
-        still counting it. Raises rather than degrading, because a writer that cannot
-        create its own directory has nowhere to go.
+        Raises :class:`StorageError` on a bad name or a failed write.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -712,23 +615,16 @@ class Storage:
         return run_dir
 
     def read_json(self, path: Path) -> Any | None:
-        """``None`` for both missing and malformed — the reader cannot tell them apart
-        either, which is why a writer bug looks exactly like an absent feature.
+        """Parsed JSON, or ``None`` if missing or malformed.
 
-        The return type is ``Any`` rather than ``dict`` because it genuinely is: a valid
-        ``system_metrics.json`` is a JSON *array* of samples, and it has to pass through
-        verbatim. Callers that require a mapping check for one.
+        Not always a dict (``system_metrics.json`` is an array); callers check.
         """
         return self._read_json_value(path)
 
     def write_json(self, path: Path, data: dict | list) -> None:
-        """Write the whole file atomically.
+        """Write the whole file atomically, so a crash can't leave truncated JSON.
 
-        These files are rewritten wholesale on every state transition, and a crash
-        part-way through a plain write leaves truncated JSON — which every reader treats
-        as an absent file, so the run loses its status and all of its metrics at once.
-        ``NaN`` and ``Infinity`` are rejected here rather than written, because both are
-        illegal JSON that the reader drops silently.
+        Rejects NaN/Infinity (invalid JSON) with :class:`StorageError`.
         """
         try:
             payload = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False)
@@ -737,12 +633,9 @@ class Storage:
         self.write_bytes(path, payload.encode("utf-8"))
 
     def write_bytes(self, path: Path, payload: bytes) -> None:
-        """The atomic write underneath :meth:`write_json`, for content that is not JSON.
+        """Atomic write (temp file + replace) for raw bytes.
 
-        Only ``uncommitted.patch`` uses it directly today. It is bytes rather than text
-        because a patch is bytes: ``git diff --binary`` emits literal binary hunks, and
-        decoding them to run them back through an encoder would corrupt exactly the
-        patches that most need to survive.
+        Bytes, not text, because ``git diff --binary`` patches must not be re-encoded.
         """
         directory = path.parent
         try:
@@ -763,12 +656,9 @@ class Storage:
             raise StorageError(f"could not write {path}: {exc}") from exc
 
     def read_jsonl(self, path: Path) -> list[dict]:
-        """One object per line, dropping unparseable lines individually.
+        """One object per line. Bad or non-object lines are skipped individually.
 
-        That tolerance is what makes append-and-flush streaming safe: a torn final line
-        from an interrupted write costs one step, not the file. Lines that parse to
-        something other than an object are dropped too — the reader keeps them, and a
-        bare string line then becomes chart series named after its character indices.
+        So a torn last line from a live writer costs one step, not the file.
         """
         try:
             text = path.read_text(encoding="utf-8")
@@ -787,11 +677,9 @@ class Storage:
         return records
 
     def append_jsonl(self, path: Path, record: dict) -> None:
-        """Append one newline-terminated line and flush.
+        """Append one line and flush.
 
-        Flushed but not fsynced: an fsync per logged step would dominate a training loop,
-        and the reader already tolerates a torn last line, so handing the bytes to the OS
-        is enough for the dashboard to see the step while the process is still alive.
+        No fsync: too slow per step, and readers already tolerate a torn last line.
         """
         try:
             line = json.dumps(record, ensure_ascii=False, allow_nan=False)
@@ -808,19 +696,9 @@ class Storage:
     def append_log(self, project: str, run_id: str, record: dict) -> bool:
         """Append one record to ``logs.jsonl``. Never raises; returns whether it landed.
 
-        Two differences from :meth:`append_jsonl`, both of which are the reason this is a
-        method rather than a call site. It reports failure instead of raising, because the
-        only caller is a capture path attached to somebody's training loop and a tracker
-        that can kill a training job over a full disk is a tracker nobody attaches to a job
-        that matters. And it refuses to create the run directory: ``append_jsonl`` makes
-        parents, so a mistyped run ID would otherwise materialise a directory holding logs
-        and no ``metadata.json`` — a run the dashboard cannot open but still counts against
-        the project's success rate.
-
-        The record is written as given. Storage validates nothing anywhere else and would
-        be the wrong place to start: the writer that builds these records
-        (:class:`~mlexperimenttracker.logs.LogWriter`) owns the vocabulary, and a silent
-        repair here would hide a writer bug rather than fix it.
+        Called from log capture in the training process, so failures must not raise.
+        Won't create the run dir, so a bad run ID can't leave a run without metadata.
+        The record is written as given; ``LogWriter`` owns validation.
         """
         if not isinstance(record, dict):
             return False
@@ -836,18 +714,10 @@ class Storage:
     def write_provenance(
         self, project: str, run_id: str, manifest: dict, patch: bytes | None
     ) -> bool:
-        """Write ``provenance.json`` and, when there is one, ``uncommitted.patch``.
+        """Write ``provenance.json`` and, if given, ``uncommitted.patch``.
 
-        The patch goes down **first**. The manifest names it and carries its hash, so
-        writing the manifest first would leave a window — one crash wide — in which a run
-        advertises a patch that is not there, and a verifier cannot tell that from a patch
-        somebody deleted. In the other order the worst case is an orphaned patch file,
-        which reads as absent because nothing looks for a patch except through the
-        manifest.
-
-        Returns ``False`` rather than raising for an unaddressable name or a failed write:
-        this is called from the capture path, and the whole point of that path is that a
-        provenance failure never reaches the training run.
+        The patch goes first so a crash can't leave a manifest naming a missing patch.
+        Returns ``False`` instead of raising; provenance must never break a training run.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -861,11 +731,7 @@ class Storage:
         return True
 
     def read_provenance(self, project: str, run_id: str) -> dict | None:
-        """The manifest, or ``None`` for absent, malformed or unaddressable.
-
-        Absence is the normal case for every run written before format 1.1 and for every
-        run whose capture failed, so it is not an error and never logged as one.
-        """
+        """The manifest, or ``None``. Normal for pre-1.1 runs or failed captures."""
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
             return None
@@ -873,7 +739,7 @@ class Storage:
         return value if isinstance(value, dict) else None
 
     def read_patch(self, project: str, run_id: str) -> bytes | None:
-        """The raw patch bytes, or ``None``. Never decoded — see :meth:`write_bytes`."""
+        """The raw patch bytes, or ``None``. Never decoded."""
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
             return None
@@ -883,9 +749,10 @@ class Storage:
             return None
 
     def update_run_tags(self, project: str, run_id: str, tags: list[str]) -> bool:
-        """Read, merge, write. A blind overwrite would destroy tags a user edited in the
-        UI and any key a future version added; there is no locking, so this narrows the
-        race rather than closing it."""
+        """Read-modify-write the tags in ``metadata.json``, keeping other keys.
+
+        No locking, so concurrent writers can still race.
+        """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
             return False
@@ -902,11 +769,9 @@ class Storage:
         return True
 
     def update_run_description(self, project: str, run_id: str, description: str) -> bool:
-        """Writes ``notes`` into ``summary.json``, creating the file if absent.
+        """Write ``notes`` into ``summary.json``, creating it if absent.
 
-        ``notes`` is simultaneously the run's display name and its description on the run
-        page, so editing a description renames the run. That is a reader defect worth
-        fixing; until it is, this method inherits it.
+        ``notes`` is also the run's display name, so this renames the run too.
         """
         run_dir = self.run_path(project, run_id)
         if run_dir is None:
@@ -924,16 +789,9 @@ class Storage:
         return True
 
     def update_experiment_description(self, project: str, name: str, description: str) -> bool:
-        """Writes ``project_metadata.json``, which :meth:`_read_project_description` reads.
+        """Read-modify-write ``project_metadata.json`` (read by the experiment view).
 
-        The pair is the fix for GAPS M3: this file was written by the endpoint and opened
-        by nothing, so an edit reverted on reload. Read-modify-write rather than
-        overwrite, for the same reason as :meth:`update_run_tags` — a key some later
-        version adds must survive a description edit made by this one.
-
-        Unlike the reader, this refuses to create the project directory as a side effect
-        of a description edit: a write that materialises a project nobody asked for is how
-        the original became an arbitrary-directory-creation bug.
+        Won't create a missing project dir, so an edit can't create arbitrary directories.
         """
         project_dir = self.project_path(project)
         if project_dir is None or not project_dir.is_dir():
@@ -956,8 +814,7 @@ class Storage:
     # ----------------------------------------------------------------------------------
 
     def _read_json_value(self, path: Path) -> Any:
-        """Parse a whole-file JSON document, or ``None``. Arrays are returned as lists —
-        ``system_metrics.json`` is an array in its preferred shape."""
+        """Parse a whole-file JSON document, or ``None``."""
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, ValueError):
@@ -968,8 +825,7 @@ class Storage:
             return None
 
     def _list_files(self, directory: Path) -> list[Path]:
-        """Loose files only, non-recursive, sorted. Subdirectories are dropped, which is
-        why a directory-per-artifact layout produces nothing at all."""
+        """Loose files only, non-recursive, sorted by name."""
         try:
             with os.scandir(directory) as entries:
                 files = [Path(e.path) for e in entries if e.is_file()]
@@ -984,13 +840,10 @@ class Storage:
 
 
 def _extract_parameters(config: Any) -> dict:
-    """Config reader A, used by the run-detail view.
+    """Config parameters for the run-detail view.
 
-    Top-level scalars pass through; top-level objects are flattened exactly one level;
-    depth two and beyond is discarded entirely, so ``{"model": {"encoder": {...}}}``
-    yields nothing. Arrays flatten by numeric index, producing ``layers0``/``layers1``.
-    Object-valued ``storage``, ``system`` and ``logging`` are dropped — a *scalar* by
-    those names survives, because the drop list is only consulted for objects.
+    Scalars pass through; objects/arrays are flattened one level (``layers0``); deeper
+    levels are dropped. Object-valued ``CONFIG_DROP_KEYS`` are skipped, scalars are kept.
     """
     if not isinstance(config, dict):
         return {}
@@ -1008,8 +861,7 @@ def _extract_parameters(config: Any) -> dict:
 
 
 def _extract_top_level_scalars(config: Any) -> dict:
-    """Config reader B, used by the comparison table. Top-level scalars only; nested
-    objects are not flattened, they are dropped."""
+    """Config for the comparison table: top-level scalars only."""
     if not isinstance(config, dict):
         return {}
     return {
@@ -1020,12 +872,9 @@ def _extract_top_level_scalars(config: Any) -> dict:
 
 
 def _extract_metrics(summary: Any) -> dict:
-    """Flatten ``metrics_summary`` for the run-detail view.
+    """Flatten ``metrics_summary`` for the run-detail view (nothing computed here).
 
-    Nothing is computed here — no reader in the product derives an aggregate from
-    ``metrics.jsonl``, so these numbers exist only because the writer wrote them twice.
-    A metric appears only if its entry carries ``latest``; each recognised stat becomes a
-    sibling key, so ``loss`` with all four stats yields five keys.
+    ``latest`` becomes ``loss``, each stat becomes a sibling key like ``lossMean``.
     """
     if not isinstance(summary, dict):
         return {}
@@ -1045,7 +894,7 @@ def _extract_metrics(summary: Any) -> dict:
 
 
 def _extract_latest_metrics(summary: Any) -> dict:
-    """The comparison table's narrower view: ``latest`` only, no stat suffixes."""
+    """``latest`` only, for the comparison table."""
     if not isinstance(summary, dict):
         return {}
     metrics_summary = summary.get("metrics_summary")
@@ -1059,15 +908,14 @@ def _extract_latest_metrics(summary: Any) -> dict:
 
 
 def _entries(value: dict | list) -> Iterable[tuple[str, Any]]:
-    """Object entries the way JavaScript sees them — an array is an object whose keys are
-    its stringified indices."""
+    """Key/value pairs, JS-style: arrays use stringified indices as keys."""
     if isinstance(value, dict):
         return list(value.items())
     return [(str(index), item) for index, item in enumerate(value)]
 
 
 # --------------------------------------------------------------------------------------
-# Small conversions that have to match the reader exactly
+# JS-compatible conversions
 # --------------------------------------------------------------------------------------
 
 
@@ -1086,8 +934,7 @@ def _js_round(value: float) -> int:
 
 
 def _js_str(value: Any) -> str:
-    """String interpolation the way a template literal does it, so a malformed artifact
-    line produces the same composite id here as it does in the reader."""
+    """Stringify like a JS template literal (``undefined``, ``true``, ``1``)."""
     if value is None:
         return "undefined"
     if isinstance(value, bool):
@@ -1098,8 +945,7 @@ def _js_str(value: Any) -> str:
 
 
 def _js_number_str(value: float) -> str:
-    """JavaScript has one number type, so ``1.0`` prints as ``1``. Matters for CSV
-    export, where the reader's output is the format users diff against."""
+    """Format a float like JS does, so ``1.0`` prints as ``1``."""
     if math.isnan(value):
         return "NaN"
     if math.isinf(value):
@@ -1110,7 +956,7 @@ def _js_number_str(value: float) -> str:
 
 
 def _js_iso(moment: datetime) -> str:
-    """``Date.prototype.toISOString`` — UTC, milliseconds, trailing ``Z``."""
+    """Like JS ``toISOString``: UTC, milliseconds, trailing ``Z``."""
     utc = moment.astimezone(timezone.utc)
     return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
 
@@ -1122,12 +968,7 @@ def _js_iso_from_epoch(epoch: float | None) -> str | None:
 
 
 def _parse_iso(value: Any) -> float | None:
-    """Epoch seconds for an ISO-8601 string, or ``None`` if it cannot be parsed.
-
-    A bare timestamp with no offset is read as UTC rather than as the server's local
-    zone. The reader does the opposite, which silently shifts a run viewed on a machine
-    in another timezone — an ambiguity the writer avoids by always emitting an offset.
-    """
+    """Epoch seconds for an ISO-8601 string, or ``None``. No offset means UTC."""
     if isinstance(value, datetime):
         moment = value
     elif isinstance(value, str):
@@ -1148,12 +989,7 @@ def _parse_iso(value: Any) -> float | None:
 
 
 def _log_line(record: dict) -> str:
-    """One log record as a line of text, degrading field by field.
-
-    Every field is optional here even though the writer emits all four: this renders
-    whatever is on disk, including a file another tool appended to, and a download that
-    dropped the lines it did not fully understand would be the wrong kind of tidy.
-    """
+    """One log record as a line of text. Missing or odd fields render blank."""
     timestamp = record.get("timestamp")
     stamp = f"{float(timestamp):10.3f}s" if _is_number(timestamp) else " " * 11
     level = record.get("level")
@@ -1163,9 +999,7 @@ def _log_line(record: dict) -> str:
     message = record.get("message")
     if not isinstance(message, str):
         message = "" if message is None else _csv_value(message)
-    # Column widths hold the longest member of each vocabulary — `critical` and `logging`
-    # — so the message column starts in the same place on every line and a grep of the
-    # download reads as a table rather than as ragged prose.
+    # Widths fit the longest level ("critical") and source ("logging") so messages line up.
     return f"[{stamp}] {level:<8} {source:<7} {message}\n"
 
 

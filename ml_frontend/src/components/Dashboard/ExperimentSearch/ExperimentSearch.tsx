@@ -3,11 +3,7 @@ import { FiArrowDown, FiArrowUp, FiCheck, FiSearch, FiX } from 'react-icons/fi';
 import { toTimestamp } from '../format';
 import './ExperimentSearch.css';
 
-/**
- * The shape this control needs. It is deliberately a structural minimum rather than
- * the full dashboard experiment: the caller keeps its own richer type and gets it
- * back unchanged, so the filtered list can be rendered without a cast.
- */
+/** Minimal shape this control needs. Callers keep their richer type and get it back as-is. */
 export interface FilterableExperiment {
   name: string;
   description?: string;
@@ -25,7 +21,7 @@ interface Props<T extends FilterableExperiment> {
 type SortKey = 'name' | 'date' | 'runs';
 type SortOrder = 'asc' | 'desc';
 
-/** Tags arrive from disk and are only as well-formed as whoever wrote metadata.json. */
+/** Tags come from metadata.json on disk, so don't trust their shape. */
 const cleanTags = (tags: unknown): string[] =>
   Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string' && t !== '') : [];
 
@@ -40,8 +36,7 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
     [experiments],
   );
 
-  // Derived, not stored: computing the result during render is what keeps the count in
-  // the summary line below equal to the list the caller is actually showing.
+  // Computed during render so the count below always matches the list the caller shows.
   const filtered = useMemo(() => {
     let result = [...experiments];
 
@@ -159,8 +154,8 @@ function ExperimentSearch<T extends FilterableExperiment>({ experiments, onFilte
       </div>
 
       {allTags.length > 0 && (
-        // Collapsed by default so a long tag vocabulary does not push the experiments out of
-        // view; open whenever a tag is selected, so an active filter is never hidden.
+        // Collapsed by default so a long tag list doesn't push the experiments down.
+        // Opens whenever a tag is selected so an active filter is visible.
         <details className="exp-search-tags" open={selectedTags.length > 0 || undefined}>
           <summary className="muted" id="experiment-search-tags-label">
             Filter by tag

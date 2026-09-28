@@ -1,16 +1,8 @@
-"""The three format-1.1 endpoints: the manifest, the patch and the verification report.
+"""The three format-1.1 endpoints: provenance manifest, patch and verification report.
 
-Every assertion runs against a real storage tree under ``tmp_path`` rather than a mocked
-Storage, because the property being tested is that these routes see what a writer left on
-disk — including the case that dominates in practice, a run directory written before 1.1
-that has neither file. Absence is the normal state here, not an error, and each route has
-to say so in the one error shape this API uses.
-
-The verification route is the one piece that cannot be pinned end to end from this file
-alone: ``mlexperimenttracker.verify`` is written separately, and the route imports it
-lazily so that an installation without it still serves the other twenty. The happy path
-therefore skips until that module exists, while the 404 that precedes the import — no
-manifest, nothing to verify against — is asserted unconditionally.
+Uses a real storage tree, including a pre-1.1 run with neither file (the common case, a 404).
+The verify route imports ``mlexperimenttracker.verify`` lazily, so its happy path skips if
+that module is missing.
 """
 
 from __future__ import annotations
@@ -83,11 +75,8 @@ MANIFEST = {
     "command": {"argv": ["train.py", "--lr", "3e-4"], "cwd": "E:/work/churn"},
 }
 
-#: Every route the app registers, as the frontend and the parity suite see them. The set
-#: is asserted whole rather than incrementally so that a route added by accident — or one
-#: lost to a name collision inside a registrar — fails here rather than in a page that
-#: stops loading. FastAPI's own ``/api/docs`` and ``/api/openapi.json`` are excluded: they
-#: come from the framework's configuration, not from this application's handlers.
+# Every route the app registers, checked as a whole set so an extra or lost route fails.
+# FastAPI's own /api/docs and /api/openapi.json are excluded.
 EXPECTED_ROUTES = {
     ("/api/health", "GET"),
     ("/api/dashboard", "GET"),
@@ -113,10 +102,8 @@ EXPECTED_ROUTES = {
     ("/api/run/{run_id}/description", "PATCH"),
 }
 
-#: The seventeen that existed before format 1.1 — three landed with the provenance
-#: manifest and two more with log capture in 1.2. `tests/test_parity.py` diffs the read
-#: half of the original seventeen against the Express service, so an addition must be an
-#: addition and nothing else.
+# The seventeen routes from before 1.1 (provenance added three, log capture in 1.2 two).
+# tests/test_parity.py covers these, so new routes must not change them.
 PRE_1_1_ROUTES = EXPECTED_ROUTES - {
     ("/api/run/{run_id}/provenance", "GET"),
     ("/api/run/{run_id}/patch", "GET"),
@@ -133,7 +120,7 @@ def _write_json(path: Path, data: object) -> None:
 
 @pytest.fixture()
 def root(tmp_path: Path) -> Path:
-    """Two runs in one project: one captured under 1.1, one written before it existed."""
+    """Two runs: one with 1.1 provenance, one written before 1.1."""
     captured = tmp_path / PROJECT / RUN_WITH
     _write_json(
         captured / "metadata.json",
@@ -171,7 +158,7 @@ def _api_routes(app: object) -> set[tuple[str, str]]:
 
 
 def test_the_existing_route_set_is_unchanged(root: Path) -> None:
-    """The new routes are additive: nothing that existed before moved or vanished."""
+    """New routes are additive; nothing old moved or vanished."""
     app = create_app(Storage(root), static_dir=root / "no-bundle")
     found = _api_routes(app)
     assert PRE_1_1_ROUTES <= found
@@ -184,16 +171,14 @@ def test_the_existing_route_set_is_unchanged(root: Path) -> None:
 
 
 def test_provenance_is_returned_verbatim(client: TestClient) -> None:
-    """No reshaping and no camelCase transform: the manifest is the contract, and the one
-    reader that matters — a later verification — compares it field by field."""
+    """No reshaping or camelCase: verification compares the manifest field by field."""
     response = client.get(f"/api/run/{RUN_WITH}/provenance")
     assert response.status_code == 200
     assert response.json() == MANIFEST
 
 
 def test_provenance_404s_for_a_run_that_recorded_none(client: TestClient) -> None:
-    """The common case, and the reason this is not an empty object: most run directories
-    on any real disk predate format 1.1."""
+    """404 rather than an empty object; most real runs predate 1.1."""
     response = client.get(f"/api/run/{RUN_WITHOUT}/provenance")
     assert response.status_code == 404
     assert response.json() == {"message": "No provenance recorded"}
@@ -207,9 +192,7 @@ def test_provenance_404s_for_an_unknown_run(client: TestClient) -> None:
 
 @pytest.mark.parametrize("payload", ["%2e%2e", "%2fetc%2fpasswd", "..%5c..%5cwindows"])
 def test_traversal_payloads_are_404_on_the_new_routes(client: TestClient, payload: str) -> None:
-    """A URL-encoded separator survives routing as a real one, so these arrive as paths of
-    the wrong length and match no route at all — 404 in JSON from the ``/api`` guard,
-    rather than the 405 a file server would answer with."""
+    """Encoded separators decode into extra segments and match no route: JSON 404, not 405."""
     for suffix in ("provenance", "patch", "verify"):
         response = client.get(f"/api/run/{payload}/{suffix}")
         assert response.status_code == 404
@@ -229,8 +212,7 @@ def test_patch_is_served_byte_for_byte_as_text(client: TestClient) -> None:
 
 
 def test_patch_is_offered_as_an_attachment_with_a_sanitised_name(client: TestClient) -> None:
-    """The run ID is interpolated into a header. Storage has already refused separators
-    and NUL by this point, but not a quote."""
+    """The run id goes into a header; storage rejects separators and NUL but not quotes."""
     response = client.get(f"/api/run/{RUN_WITH}/patch")
     assert response.headers["content-disposition"] == (
         f'attachment; filename="{RUN_WITH}_uncommitted.patch"'
@@ -244,8 +226,7 @@ def test_patch_404s_when_no_diff_was_captured(client: TestClient) -> None:
 
 
 def test_an_emptied_patch_file_reads_as_absent(client: TestClient, root: Path) -> None:
-    """The writer never produces a zero-byte patch, so an empty one is a patch somebody
-    emptied — and serving it as an empty 200 would claim a clean tree that was dirty."""
+    """The writer never makes an empty patch, so an empty 200 would wrongly imply a clean tree."""
     (root / PROJECT / RUN_WITH / "uncommitted.patch").write_bytes(b"")
     response = client.get(f"/api/run/{RUN_WITH}/patch")
     assert response.status_code == 404
@@ -264,8 +245,7 @@ def test_patch_404s_for_an_unknown_run(client: TestClient) -> None:
 
 
 def test_verify_404s_before_it_imports_anything(client: TestClient) -> None:
-    """A run with no manifest has nothing to verify against, and answers with the same
-    message the provenance route uses — the two absences are one fact."""
+    """No manifest means nothing to verify; same message as the provenance route."""
     response = client.get(f"/api/run/{RUN_WITHOUT}/verify")
     assert response.status_code == 404
     assert response.json() == {"message": "No provenance recorded"}
@@ -293,9 +273,7 @@ def test_verify_returns_a_json_report(client: TestClient) -> None:
 
 
 def test_the_run_object_is_unaffected_by_the_two_new_files(client: TestClient) -> None:
-    """A 1.0 reader handed a 1.1 directory reads it correctly. The run object here is the
-    proof on the API side: neither file reaches a parser, and the artifact scan — the one
-    place a stray file is picked up — looks only inside ``artifacts/``."""
+    """provenance.json and the patch don't change the run object or show up as artifacts."""
     with_manifest = client.get(f"/api/run/{RUN_WITH}").json()
     without = client.get(f"/api/run/{RUN_WITHOUT}").json()
     assert tuple(with_manifest) == tuple(without)

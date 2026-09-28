@@ -9,8 +9,7 @@ interface GradientData {
   step: number;
   timestamp: number;
   layerName: string;
-  // Every statistic is optional: a run logs whichever of them it logs, and an
-  // absent one must stay absent — a zero here would read as a vanished gradient.
+  // All optional. A missing stat stays missing; 0 would look like a vanished gradient.
   gradientMean?: number;
   gradientStd?: number;
   gradientMin?: number;
@@ -22,9 +21,8 @@ interface Props {
   runId: string;
 }
 
-// `metrics.jsonl` is wide: one object per step carrying every metric logged at
-// that step as its own key. Reserved keys are metadata, everything else is a
-// metric name — so a gradient series is a key shaped `gradient/<layer>/<stat>`.
+// metrics.jsonl rows are wide: one object per step, one key per metric.
+// Gradient series use keys shaped `gradient/<layer>/<stat>`.
 const RESERVED_KEYS = new Set([
   'timestamp',
   'absolute_timestamp',
@@ -80,9 +78,7 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      // GAPS B9: the mounted route is `/api/run/{id}/metrics/timeseries` — singular
-      // prefix, slash not hyphen. Without a `metric` query parameter it returns the
-      // raw wide rows verbatim, which is what a multi-series read needs.
+      // Without a `metric` param this returns the raw wide rows, which is what we need here.
       const response = await apiFetch(`/api/run/${runId}/metrics/timeseries`);
 
       if (!response.ok) {
@@ -95,8 +91,7 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
         return;
       }
 
-      // Keyed by step + layer so the several statistics of one layer at one step
-      // collapse into a single record.
+      // Key by step + layer so all stats for a layer at one step end up in one record.
       const byStepAndLayer = new Map<string, GradientData>();
 
       for (const row of rows as Array<Record<string, unknown>>) {
@@ -144,8 +139,7 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
 
   const layers = Array.from(new Set(gradients.map(g => g.layerName)));
 
-  // Offer only the statistics this run actually logged, and fall back to the
-  // first available one rather than charting a series that was never recorded.
+  // Only offer stats this run logged; fall back to the first available one.
   const availableModes = (['norm', 'mean', 'std'] as ViewMode[]).filter(mode =>
     gradients.some(g => valueFor(g, mode) !== undefined)
   );
@@ -159,9 +153,7 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
 
   const getGradientValue = (grad: GradientData): number | undefined => valueFor(grad, activeMode);
 
-  // Detect vanishing/exploding gradients. The thresholds are norm thresholds, so
-  // a run that logged only means or standard deviations gets no verdict at all —
-  // reporting "vanishing" off an unrecorded norm would be an invented diagnosis.
+  // Vanishing/exploding check uses norms only, so a run that logged just mean/std gets no verdict.
   const analyzeGradients = () => {
     const norms = gradients
       .map(g => g.gradientNorm)
@@ -183,9 +175,7 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
     };
   };
 
-  // This sits below a page that has already resolved its own loading state, and
-  // most runs give it nothing to draw. Announcing a load it will usually abandon
-  // just flashes a panel at the reader, so it stays silent until it has data.
+  // No loading state: most runs have nothing to show here, so don't flash a panel.
   if (loading) {
     return null;
   }
@@ -201,16 +191,14 @@ const GradientVisualization: React.FC<Props> = ({ runId }) => {
     );
   }
 
-  // Most runs log no gradient statistics at all. That is the ordinary case, and it
-  // renders as nothing rather than as a card explaining its own absence.
+  // Most runs log no gradient stats; render nothing.
   if (gradients.length === 0 || availableModes.length === 0) {
     return null;
   }
 
   const analysis = analyzeGradients();
   const layersToShow = selectedLayer === 'all' ? layers.slice(0, 5) : [selectedLayer];
-  // The series index is the layer's position in the full list, so a layer keeps its
-  // colour when the reader narrows the chart to it.
+  // Index in the full layer list so a layer keeps its colour when filtered.
   const series = layersToShow.map((layer) => ({
     name: layer,
     index: layers.indexOf(layer),

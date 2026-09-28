@@ -1,32 +1,8 @@
-"""A believable experiment archive, generated from nothing but a seed.
+"""Seeded demo archive, so ``mlexp demo && mlexp ui`` shows a populated UI on a fresh clone.
 
-A fresh clone of this project shows an empty dashboard, because the storage root does
-not exist until something writes to it. That is an accurate rendering of no data and a
-useless first impression, so this module exists to make ``mlexp demo && mlexp ui`` the
-shortest path from clone to a populated UI.
-
-Two constraints shape everything here.
-
-*It has to be deterministic.* Every number comes from a :class:`random.Random` seeded by
-the caller and every timestamp is an offset from a fixed base instant, so the same seed
-produces byte-identical files on any machine. That makes the generated tree usable as a
-committed test fixture (:func:`write_fixture_tree`) rather than only as a demo, and it
-means a diff in the fixture is a real change in the writer.
-
-*It has to be plausible, not merely non-empty.* Random noise in a chart is obvious
-within seconds and reads worse than no data at all, so the curves are produced by a
-small training model rather than by sampling: the learning rate drives how fast loss
-decays and whether it diverges, the batch size drives how noisy the curve is, the LR
-schedule produces the plateaus, and validation metrics carry an overfitting gap that
-opens in the last third of training. The runs also cover every state in the vocabulary,
-including the two that only appear when something goes wrong, because status handling is
-the part of a dashboard nobody can demonstrate with happy-path data.
-
-Metrics are written twice — per step into ``metrics.jsonl`` and pre-aggregated into
-``summary.json`` — because no reader in the product derives an aggregate from the series
-(DATA-CONTRACT §4.1). The aggregates here are computed from the values actually written
-to disk, so a reviewer who exports the CSV and checks the mean finds the number the UI
-showed them.
+Deterministic: same seed, byte-identical files, so it doubles as the test fixture.
+Curves come from a small training model (LR, batch size, schedule, overfitting), not noise,
+and the runs cover every run state. Summaries are computed from the values written to disk.
 """
 
 from __future__ import annotations
@@ -58,42 +34,28 @@ __all__ = ["generate", "write_fixture_tree"]
 # Fixed points
 # --------------------------------------------------------------------------------------
 
-#: Every run timestamp is this instant plus a whole number of hours. Wall-clock time is
-#: never read, which is the whole reason the output is reproducible. The offset is
-#: non-UTC on purpose: the reader parses ISO strings with ``new Date``, and a bare local
-#: timestamp silently shifts by the viewer's zone, so the demo data exercises the case
-#: that has to keep working.
+# All timestamps are offsets from this; wall-clock time is never read. Non-UTC offset so
+# the demo exercises the reader's timezone handling.
 _BASE_TIME = datetime(2026, 8, 5, 9, 14, 3, 482000, tzinfo=timezone(timedelta(hours=5, minutes=30)))
 
-#: How many metric rows per epoch. Enough for a curve to have a shape, few enough that a
-#: twelve-epoch run is still a file a human can read.
 _POINTS_PER_EPOCH = 4
 
-#: Decay constant of the loss curve, tuned so a well-configured run lands just above its
-#: floor by the last epoch rather than converging halfway through.
+# Tuned so a good run reaches its floor near the last epoch, not halfway through.
 _DECAY = 6.0
 
-#: Learning rate above this multiple of the project's good rate stops training and starts
-#: destroying it. Divergence is inferred from the configured rate rather than declared per
-#: run, so the relationship a viewer sees between config and chart is real. The further
-#: past the threshold, the sooner the blow-up arrives.
+# An LR this many times the project's good rate diverges; further past it, sooner.
 _DIVERGE_RATIO = 8.0
 _DIVERGE_START = 0.30
 _DIVERGE_RATE = 5.5
 
-#: Validation loss above this is a run that is no longer training, and the log says so at
-#: ``warning``. Read off the curve rather than off the plan: an epoch is called bad when
-#: its number is bad, which is the same judgement a reader makes looking at the chart.
+# Loss above this gets a warning in the log.
 _DIVERGED_LOSS = 4.0
 
-#: Gradient noise scales with 1/sqrt(batch), which is why the small-batch runs look ragged
-#: and the large-batch runs look smooth. Same reason it does in a real training loop.
+# Scaled by 1/sqrt(batch), so small-batch runs look noisier.
 _LOSS_NOISE = 0.55
 _ACC_NOISE = 0.18
 
-#: Sampling cadence for ``system_metrics.json``. The file is strict JSON and rewritten in
-#: full on every tick, and the UI only ever renders the first twenty rows, so a coarse
-#: interval costs nothing and keeps the file small.
+# system_metrics.json is rewritten in full each tick; keep it coarse and small.
 _SYSTEM_INTERVAL_SECONDS = 30.0
 _MAX_SYSTEM_SAMPLES = 40
 
@@ -102,7 +64,7 @@ _TOTAL_MEMORY_MB = 16384
 
 @dataclass(frozen=True)
 class _Project:
-    """A sweep with a character: a dataset, a model, and the numbers that follow."""
+    """A sweep: dataset, model, and the numbers that drive its curves."""
 
     name: str
     dataset: str
@@ -130,11 +92,9 @@ class _Project:
 
 @dataclass(frozen=True)
 class _RunPlan:
-    """One run's identity, hyperparameters and fate.
+    """One run's name, hyperparameters and outcome.
 
-    ``stop_fraction`` below 1.0 is what makes a failed or interrupted run look like one:
-    the series simply ends, mid-epoch, exactly as an append-per-step writer leaves it when
-    the process dies.
+    ``stop_fraction`` < 1.0 cuts the series off mid-epoch, like a process that died.
     """
 
     project: _Project
@@ -243,10 +203,8 @@ _AGNEWS = _Project(
 )
 
 
-#: Ordered so that the first run of each project carries the sweep description — the
-#: experiment description the dashboard shows is the first non-empty ``notes`` it finds
-#: (DATA-CONTRACT §3.9), and ``notes`` doubles as that run's display name, so exactly one
-#: run per project pays that price and the rest keep their generated names.
+# The first run of each project carries the sweep description: the dashboard uses the
+# first non-empty ``notes`` as the experiment description.
 _PLANS: tuple[_RunPlan, ...] = (
     _RunPlan(
         project=_CIFAR,
@@ -368,9 +326,7 @@ _PLANS: tuple[_RunPlan, ...] = (
     ),
 )
 
-#: A deliberately smaller archive for the test suite: five runs, three epochs at most,
-#: still covering all four terminal-or-not states. Small enough to commit and to read in
-#: a diff when something about the writer changes.
+# Smaller archive for the test fixture: five short runs, all four states.
 _FIXTURE_SEED = 7
 _FIXTURE_PLANS: tuple[_RunPlan, ...] = (
     _RunPlan(
@@ -458,17 +414,10 @@ _FIXTURE_PLANS: tuple[_RunPlan, ...] = (
 
 
 def generate(storage: Storage | str | Path, runs: int = 8, seed: int = 0) -> list[str]:
-    """Write ``runs`` runs across two projects and return their IDs, newest plan last.
+    """Write ``runs`` runs across two projects and return their IDs.
 
-    The first eight runs are hand-planned so that every state in the vocabulary appears
-    — completed, failed part-way, interrupted and still-running — because the states are
-    the part of the UI that cannot be demonstrated with successful runs alone. Beyond
-    eight, the archive is extended backwards in time with further sweep points, so the
-    hand-planned runs stay the recent ones no matter how many are asked for.
-
-    Re-running with the same arguments over an existing tree overwrites rather than
-    appends: the two line-oriented files are truncated first, so the generator is
-    idempotent and a demo directory never accumulates duplicate steps.
+    The first eight are hand-planned to cover every state; extra runs are older grid points.
+    Re-running over an existing tree overwrites it rather than appending.
     """
     store = storage if isinstance(storage, Storage) else Storage(storage)
     rng = Random(seed)
@@ -478,10 +427,7 @@ def generate(storage: Storage | str | Path, runs: int = 8, seed: int = 0) -> lis
 def write_fixture_tree(dest: Path) -> None:
     """Write the committed test fixture: five short runs, four states, two projects.
 
-    Separate from :func:`generate` because a fixture answers to different pressures — it
-    is read in diffs, so it must stay small, and it must not change when the demo's plan
-    list is retuned for a better-looking dashboard. Regenerating it and finding a diff
-    means the writer changed, which is exactly the signal the test suite wants.
+    Kept separate from :func:`generate` so retuning the demo doesn't change the fixture.
     """
     store = Storage(dest)
     rng = Random(_FIXTURE_SEED)
@@ -496,8 +442,7 @@ def _plans(runs: int) -> list[_RunPlan]:
         return list(_PLANS[:runs])
 
     plans = list(_PLANS)
-    #: Extra runs are older than every hand-planned one, so a large archive reads as a
-    #: sweep with history rather than as eight good runs followed by filler.
+    # Extra runs go back in time so the hand-planned ones stay the most recent.
     lr_grid = (0.0005, 0.0015, 0.004, 0.008, 0.012)
     batch_grid = (32, 64, 128, 256)
     epoch_grid = (6, 8, 10, 12)
@@ -535,14 +480,11 @@ def _plans(runs: int) -> list[_RunPlan]:
 
 
 def _write_run(store: Storage, plan: _RunPlan, rng: Random) -> str:
-    """Write a whole run in the order a live SDK would: identity, config, steps, then the
-    summary last, because the summary is the file that declares the run over."""
+    """Write a run in SDK order: metadata, config, steps, summary last."""
     project = plan.project
     created = _BASE_TIME + timedelta(hours=plan.hours)
     created_epoch = created.timestamp()
-    #: The ID embeds the project because run IDs are resolved by scanning every project
-    #: and taking the first match — a bare counter collides across projects and sends
-    #: reads, and edits, to the wrong run (DATA-CONTRACT §2.2).
+    # Run IDs are looked up across all projects, so they must be globally unique.
     run_id = (
         f"{project.name}"
         f"_{created.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
@@ -558,12 +500,8 @@ def _write_run(store: Storage, plan: _RunPlan, rng: Random) -> str:
         "format_version": FORMAT_VERSION,
         "created_at": _iso(created),
         "name": plan.name,
-        # `running`, on every run, including the finished ones — because that is the last
-        # thing the SDK writes here: it flips this field on the first logged step and
-        # records the terminal state in summary.json, which is the file the dashboard
-        # counters read. The run that has no summary at all therefore falls back to this
-        # field and reads as running, which is both correct and the reason a crashed run
-        # reads as running forever.
+        # Always `running`, as the SDK leaves it; the terminal state lives in summary.json.
+        # A run with no summary falls back to this and shows as running.
         "state": RunState.RUNNING.value,
         "tags": list(project.tags + plan.tags),
         "notes": plan.notes,
@@ -573,8 +511,7 @@ def _write_run(store: Storage, plan: _RunPlan, rng: Random) -> str:
     }
     run_dir = store.create_run(project.name, run_id, metadata)
 
-    # Every line-oriented file is appended to, so a re-run over an existing tree has to
-    # start from empty or the series doubles.
+    # These are append-only, so clear them or a re-run doubles the series.
     for name in (METRICS_FILE, ARTIFACTS_FILE, LOGS_FILE):
         _truncate(run_dir / name)
 
@@ -620,16 +557,9 @@ def _log_records(
     created_epoch: float,
     duration: float,
 ) -> list[dict[str, Any]]:
-    """The run's captured output, derived from the numbers already on the chart.
+    """Log lines built from the metric rows, so the log matches the chart.
 
-    Every line quotes a value that is in ``metrics.jsonl`` at the same timestamp, so a
-    reviewer who reads the log and then reads the chart finds the same run described
-    twice rather than two unrelated fictions. Nothing here is sampled.
-
-    The four sources and four of the five levels all appear, because the level filter and
-    the source column are the parts of the Logs tab that cannot be demonstrated by a run
-    that only ever printed ``info`` to stdout — and a run that ended badly says so on the
-    stream it would have said it on.
+    Uses all four sources and several levels so the Logs tab filters have something to show.
     """
     project = plan.project
     records: list[dict[str, Any]] = []
@@ -665,8 +595,6 @@ def _log_records(
             f"loss {row['loss']:.4f} acc {row['accuracy']:.4f} "
             f"val_loss {row['val_loss']:.4f} val_acc {row['val_accuracy']:.4f}"
         )
-        # The diverging run is the reason the level filter exists: its loss is on the chart
-        # climbing, and the log has to be the thing that says so in words.
         level = "warning" if float(row["loss"]) > _DIVERGED_LOSS else "info"
         emit(elapsed, message, level=level)
         if level == "warning":
@@ -707,8 +635,7 @@ def _log_records(
 
 
 def _teardown_seconds(state: RunState) -> float:
-    """Time between the last logged step and the run ending: a traceback, a signal
-    handler's final flush, or a normal shutdown that still has to save a checkpoint."""
+    """Seconds between the last logged step and the end of the run."""
     if state is RunState.FAILED:
         return 0.6
     if state is RunState.INTERRUPTED:
@@ -717,13 +644,8 @@ def _teardown_seconds(state: RunState) -> float:
 
 
 def _config(plan: _RunPlan, config_seed: int) -> dict[str, Any]:
-    """Flat, lowercase, top-level scalars only.
-
-    The comparison table hardcodes ``learning_rate``, ``batch_size`` and ``epochs``
-    (DATA-CONTRACT §4.5), and the experiment-side config reader drops nested objects
-    entirely rather than flattening them, so anything worth comparing has to be a scalar
-    at the top level.
-    """
+    """Flat top-level scalars only: the config reader drops nested objects, and the
+    comparison table expects ``learning_rate``, ``batch_size`` and ``epochs``."""
     config: dict[str, Any] = {
         "learning_rate": plan.learning_rate,
         "batch_size": plan.batch_size,
@@ -753,18 +675,10 @@ def _config(plan: _RunPlan, config_seed: int) -> dict[str, Any]:
 def _training_series(
     plan: _RunPlan, created_epoch: float, rng: Random
 ) -> tuple[list[dict[str, Any]], dict[int, int]]:
-    """Generate the wide metric rows, and the row index at which each epoch ended.
+    """Return the metric rows and the row index where each epoch ended.
 
-    The curve is not sampled noise. Loss decays as the integral of the LR schedule, so
-    the two schedule drops show up as plateaus; the decay rate saturates with learning
-    rate, so a higher rate learns faster right up to the point where it destroys the run;
-    the noise amplitude falls as 1/sqrt(batch), so small-batch runs are visibly ragged;
-    and validation metrics carry an additive penalty that only starts growing past the
-    halfway mark, which is what an overfitting gap looks like on a chart.
-
-    Validation metrics appear only on epoch boundaries. Sparse keys are fully supported
-    by the reader, and a validation series with its own, shorter x-positions is what real
-    logging produces.
+    Loss decays with the integral of a step LR schedule; noise scales with 1/sqrt(batch);
+    an overfitting gap opens after the halfway mark. Validation keys only on epoch ends.
     """
     project = plan.project
     class_count = len(project.classes)
@@ -772,14 +686,12 @@ def _training_series(
 
     ratio = plan.learning_rate / project.good_lr
     penalty = abs(math.log10(ratio)) if ratio > 0 else 3.0
-    # Saturating in the rate, then penalised above the sweet spot: a rate ten times too
-    # high does not learn ten times faster, it learns worse and then stops learning at
-    # all. Both halves matter — without the penalty the diverging run would post the best
-    # accuracy in the sweep right up to the step where it explodes.
+    # Saturates with LR and is penalised above the good rate, otherwise the diverging run
+    # would post the best accuracy right up until it blows up.
     speed = (1.6 * ratio / (1.0 + 0.6 * ratio)) / (1.0 + 1.5 * max(0.0, math.log10(ratio)))
     floor = project.floor_loss * (1.0 + 0.9 * penalty)
     ceiling = max(project.ceiling_accuracy * (1.0 - 0.12 * penalty), chance + 0.05)
-    # Cross-entropy of a uniform prediction: where a correctly initialised model starts.
+    # Cross-entropy of a uniform prediction.
     start_loss = math.log(class_count) * 1.04
     diverges = ratio >= _DIVERGE_RATIO
     diverge_start = max(0.10, _DIVERGE_START * _DIVERGE_RATIO / ratio) if diverges else 1.0
@@ -791,14 +703,13 @@ def _training_series(
     step_seconds = project.step_seconds * (plan.batch_size / project.ref_batch) ** 0.75
 
     def clean(progress: float) -> tuple[float, float]:
-        """Loss and accuracy with no noise, at a given fraction of planned training."""
+        """Noise-free loss and accuracy at a fraction of planned training."""
         schedule = (
             min(progress, 0.5)
             + 0.35 * max(0.0, min(progress, 0.8) - 0.5)
             + 0.12 * max(0.0, progress - 0.8)
         )
-        # Each schedule drop takes a bite out of the remaining gap and then flattens it,
-        # which is the shape a step LR schedule actually draws.
+        # Each LR drop cuts the remaining gap, then the curve flattens.
         remaining = math.exp(-_DECAY * speed * schedule)
         if progress > 0.5:
             remaining *= 0.85
@@ -818,8 +729,7 @@ def _training_series(
             position = (epoch - 1) + point / _POINTS_PER_EPOCH
             progress = position / plan.epochs
             step = int(round(position * steps_per_epoch))
-            # Rounded once, then reused, so the two timestamps on a row describe the same
-            # instant instead of differing by half a tenth of a second.
+            # Round once so both timestamps on the row agree.
             elapsed = round(position * steps_per_epoch * step_seconds + project.startup_seconds, 1)
 
             loss, accuracy = clean(progress)
@@ -830,8 +740,7 @@ def _training_series(
 
             row: dict[str, Any] = {
                 "step": step,
-                # Relative seconds since the run started, and the same instant as epoch
-                # seconds. The reader wants both, under those two names, in that order.
+                # Relative seconds, then the same instant as epoch seconds.
                 "timestamp": elapsed,
                 "absolute_timestamp": round(created_epoch + elapsed, 2),
                 "loss": _clamp_loss(loss * (1.0 + rng.normalvariate(0.0, loss_noise))),
@@ -849,8 +758,7 @@ def _training_series(
                 epoch_ends[epoch] = len(rows)
             rows.append(row)
 
-    # A run that died has a file that simply stops, mid-epoch, with no terminal marker in
-    # it — there is no in-band way to say "this is where it ended".
+    # A dead run's file just stops mid-epoch, with no end marker.
     kept = max(1, int(round(len(rows) * plan.stop_fraction)))
     rows = rows[:kept]
     epoch_ends = {epoch: index for epoch, index in epoch_ends.items() if index < kept}
@@ -866,16 +774,9 @@ def _clamp_accuracy(value: float) -> float:
 
 
 def _metrics_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
-    """Aggregate every series from the rows that were actually written.
+    """Per-metric latest/mean/min/max/stddev from the rounded values actually written.
 
-    This is the write-twice rule (DATA-CONTRACT §4.1): no reader computes an aggregate, so
-    a metric with a chart and no summary entry shows a blank number, and a summary entry
-    without ``latest`` shows nothing at all. Computing the stats here from the same
-    rounded values that reached the file is what makes the dashboard's numbers survive a
-    reviewer recomputing them from the CSV export.
-
-    ``stddev`` is the **population** standard deviation. Nothing on the read side
-    validates the choice, so it is only true because it is written down.
+    The UI computes no aggregates, so these must match the series. ``stddev`` is population.
     """
     series: dict[str, list[float]] = {}
     for row in rows:
@@ -887,10 +788,8 @@ def _metrics_summary(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
     summary: dict[str, dict[str, float]] = {}
     for name, values in series.items():
         count = len(values)
-        # math.fsum, not sum: CPython 3.12 switched float sum() to Neumaier
-        # compensated summation, so the same series produced a mean differing in the
-        # last digit on 3.10/3.11 and the committed fixture no longer matched.
-        # fsum is exactly rounded on every version.
+        # fsum, not sum: 3.12 changed float sum() and the fixture's means shifted in the
+        # last digit across versions. fsum is exact everywhere.
         mean = math.fsum(values) / count
         variance = math.fsum((value - mean) ** 2 for value in values) / count
         summary[name] = {
@@ -914,12 +813,9 @@ def _checkpoints(
     epoch_ends: dict[int, int],
     created: datetime,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Sidecars for the last few epochs plus the best one by validation loss.
+    """JSON sidecars for the last three epochs plus the best by validation loss.
 
-    Only ``*.json`` files in this directory are listed, and the size the UI reports is the
-    sidecar's rather than the weights' — a reader limitation a writer cannot work around.
-    Writing the true weight size into the sidecar is free and makes fixing that a one-line
-    change on the read side; nothing reads it today.
+    ``size_bytes`` holds the real weight size; the UI currently shows the sidecar's size.
     """
     if not epoch_ends:
         return []
@@ -959,7 +855,7 @@ def _checkpoints(
 
 
 def _weights_bytes(plan: _RunPlan) -> int:
-    """Parameter count times four bytes, near enough for the two models involved."""
+    """Parameter count times four bytes."""
     parameters = 11_181_642 if plan.project is _CIFAR else 66_955_010
     return parameters * 4
 
@@ -967,16 +863,10 @@ def _weights_bytes(plan: _RunPlan) -> int:
 def _system_samples(
     plan: _RunPlan, created_epoch: float, duration: float, rng: Random
 ) -> list[dict[str, Any]]:
-    """Correlated CPU / memory / GPU traces, as an array of homogeneous samples.
+    """Correlated CPU/memory/GPU samples, all with the same keys.
 
-    Homogeneity is load-bearing: the table renders a column only when the field is present
-    on the **first** sample, so a GPU that appears mid-run never gets one. The first and
-    last samples are deliberately cool — data loading before the first step and teardown
-    after the last — which is what makes the mean/max/min cards read as a real run rather
-    than as a constant.
-
-    ``timestamp`` here is epoch seconds, the opposite convention to ``metrics.jsonl``'s
-    relative seconds. Same key name, two meanings, two files in the same directory.
+    The table only shows columns present on the first sample. First and last samples are
+    idle (loading, teardown). ``timestamp`` here is epoch seconds, unlike metrics.jsonl.
     """
     interval = _SYSTEM_INTERVAL_SECONDS
     while duration / interval > _MAX_SYSTEM_SAMPLES:
@@ -1022,16 +912,10 @@ def _system_samples(
 def _evaluation_artifacts(
     plan: _RunPlan, rows: list[dict[str, Any]], finished: datetime, rng: Random
 ) -> list[dict[str, Any]]:
-    """The three payloads the frontend knows how to draw, inlined into ``metadata``.
+    """Confusion matrix, per-class ROC curves and feature importance, inlined in ``metadata``.
 
-    There is no path and no URL field in the format, so a visualization either travels
-    inside the artifact record or does not reach the UI at all. Every payload here is
-    internally consistent — the confusion matrix's accuracy is its own trace over its own
-    total, each ROC curve's AUC is the trapezoidal area of the points it ships — because
-    the first thing anyone does with a demo dashboard is check whether the numbers agree.
-
-    Only completed runs get these: a run that crashed never reached its evaluation pass,
-    and inventing artifacts for it would be the one dishonest thing in the tree.
+    The format has no path/URL field, so payloads travel inside the record. Each payload is
+    self-consistent (accuracy from the matrix, AUC from the points). Completed runs only.
     """
     project = plan.project
     class_count = len(project.classes)
@@ -1054,8 +938,7 @@ def _evaluation_artifacts(
                 "accuracy": accuracy,
                 "precision": precision,
                 "recall": recall,
-                # The one camelCase key in the entire contract: artifact metadata reaches
-                # the component with no key transform, so f1_score would not be found.
+                # camelCase: artifact metadata reaches the component untransformed.
                 "f1Score": f1,
             },
         }
@@ -1097,11 +980,9 @@ def _evaluation_artifacts(
 def _confusion_matrix(
     rng: Random, class_count: int, per_class: int, accuracy: float
 ) -> tuple[list[list[int]], float, list[float], list[float], list[float]]:
-    """A matrix whose own cells produce the accuracy, precision, recall and F1 reported.
+    """Confusion matrix plus the accuracy, precision, recall and F1 computed from it.
 
-    Errors are biased toward neighbouring class indices, which is a stand-in for the real
-    thing — cats and dogs, business and sci/tech — and makes the heatmap look like a model
-    rather than like a uniform smear.
+    Errors lean toward neighbouring class indices so the heatmap isn't a uniform smear.
     """
     matrix = [[0] * class_count for _ in range(class_count)]
     for true_class in range(class_count):
@@ -1121,8 +1002,7 @@ def _confusion_matrix(
         total_weight = math.fsum(weights)
         exact = [remainder * weight / total_weight for weight in weights]
         counts = [int(value) for value in exact]
-        # Largest-remainder apportionment, so the row sums to per_class exactly and the
-        # reported accuracy is the matrix's own trace rather than an approximation of it.
+        # Largest-remainder apportionment so the row sums to per_class exactly.
         short = remainder - sum(counts)
         order = sorted(
             (other for other in range(class_count) if other != true_class),
@@ -1150,18 +1030,14 @@ def _confusion_matrix(
     return matrix, round(correct_total / total, 4), precision, recall, f1
 
 
-#: Where the ROC curve is sampled. Dense near the origin because that is the only part of
-#: the curve anyone reads, and it is where a good classifier's shape lives.
+# ROC sample points, dense near the origin where the shape matters.
 _ROC_FPR = (0.0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0)
 
 
 def _roc_curve(rng: Random, class_recall: float) -> tuple[list[float], list[float], list[float], float]:
-    """A power-law ROC shaped by the class's recall, with its AUC measured off the points.
+    """Power-law ROC (``tpr = fpr ** (1/k)``, area ``k/(k+1)``) targeted from recall.
 
-    ``tpr = fpr ** (1/k)`` has area ``k / (k + 1)``, so a target AUC fixes the exponent.
-    The AUC written into the payload is then re-measured by the trapezoid rule over the
-    sampled points, so it matches the curve the component actually draws rather than the
-    ideal it came from.
+    The reported AUC is the trapezoid area of the sampled points, so it matches the chart.
     """
     target = min(max(0.5 + 0.5 * class_recall**0.7 + rng.normalvariate(0.0, 0.008), 0.55), 0.998)
     k = target / (1.0 - target)
@@ -1197,11 +1073,7 @@ def _feature_importance(rng: Random, features: tuple[str, ...]) -> list[dict[str
 
 
 def _iso(moment: datetime) -> str:
-    """ISO 8601 with an explicit offset, milliseconds, no microsecond tail.
-
-    The offset is not decorative: the reader parses these with ``new Date``, which reads
-    an offsetless timestamp as local time in whatever zone the viewer's machine is in.
-    """
+    """ISO 8601 with milliseconds and an explicit offset (``new Date`` treats none as local)."""
     return moment.isoformat(timespec="milliseconds")
 
 

@@ -13,11 +13,8 @@ interface RunsProps {
 }
 
 /**
- * One row of `GET /api/experiment/:id/runs`. `metrics` and `parameters` are
- * built from whatever keys the run happened to log, so neither has a fixed
- * shape — the columns below are derived from the rows rather than declared
- * (GAPS N22). `status` is the mapped UI status, which includes `archived` for
- * an interrupted run.
+ * One row of `GET /api/experiment/:id/runs`. `metrics` and `parameters` hold whatever the run
+ * logged, so columns are derived from the rows. `status` is already mapped (interrupted -> archived).
  */
 interface Run {
   _id: string;
@@ -29,11 +26,7 @@ interface Run {
   parameters: Record<string, unknown>;
 }
 
-/**
- * Columns shown first when the data has them, so the ordinary training run —
- * loss and accuracy against learning rate, batch size and epochs — looks the
- * way it always did. Anything else the run logged follows, alphabetically.
- */
+/** Columns shown first when present; anything else follows alphabetically. */
 const LEADING_METRIC_COLUMNS = ["loss", "accuracy"];
 const LEADING_PARAM_COLUMNS = ["learningRate", "batchSize", "epochs"];
 

@@ -1,28 +1,8 @@
-"""The read/write HTTP API, and the host for the built React bundle.
+"""HTTP API and host for the built React bundle.
 
-This is a port of the Express server the React frontend already talks to, so the route
-paths and the response bodies are fixed by an existing client rather than chosen here.
-Where a body is odd — one endpoint wrapping its payload in ``{success, message, data}``
-while every other returns a bare value, one endpoint changing shape depending on a query
-parameter — it is odd on purpose: the frontend reads it that way today, and a tidier
-shape is a frontend change wearing a backend disguise.
-
-Three things are deliberately *not* ports.
-
-*Containment.* Every path parameter is resolved through :meth:`Storage.resolve_within`,
-so a name that cannot address a file inside the storage root is a 404 and never an
-exception. The handlers below never touch a path; they hold strings and hand them to
-Storage.
-
-*Blocking.* Every read here is an unbounded synchronous directory walk — the latest-run
-endpoint reads every file of every run of every project. Running that on the event loop
-is what makes one slow request stall all the others, so each one is offloaded to a worker
-thread. Nothing in this module opens a file itself, which is what makes that offload a
-single, checkable rule rather than a habit.
-
-*Leaks.* Handlers raise, and the exception handlers at the bottom decide what a client is
-told. A stack trace and an absolute server path are diagnostics for the operator's log,
-not for the browser.
+Routes and response shapes match the old Express server because the frontend depends on
+them, odd ones included. Path params go through Storage's containment check (bad names
+404), all disk reads run in a threadpool, and errors never expose paths or tracebacks.
 """
 
 from __future__ import annotations
@@ -49,16 +29,12 @@ __all__ = ["create_app", "serve", "DEFAULT_HOST", "DEFAULT_PORT", "STATIC_DIR"]
 
 logger = logging.getLogger(__name__)
 
-#: Loopback, not ``0.0.0.0``. There is no authentication anywhere in this server and that
-#: is a decision, not an omission: the trust boundary is the loopback interface. Binding
-#: to an interface anybody else can reach removes the only control there is.
+# There is no auth; loopback is the trust boundary. Don't default to 0.0.0.0.
 DEFAULT_HOST: str = "127.0.0.1"
 DEFAULT_PORT: int = 5000
 
-#: Origins allowed to call the API cross-origin. Vite's dev server proxies ``/api``, so
-#: during normal frontend development this list is never consulted; it exists for the case
-#: where the browser talks to the API directly, which is what a developer does the moment
-#: something looks wrong. The served bundle is same-origin and needs no entry at all.
+# For hitting the API directly from a dev frontend. Vite proxies /api normally, and the
+# served bundle is same-origin.
 DEV_ORIGINS: tuple[str, ...] = (
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -66,8 +42,7 @@ DEV_ORIGINS: tuple[str, ...] = (
     "http://127.0.0.1:3000",
 )
 
-#: Populated at release by building the React app into the package. Absent in a source
-#: checkout, which is the case this module has to survive without pretending otherwise.
+# Filled at release by building the frontend into the package; absent in a checkout.
 STATIC_DIR: Path = Path(__file__).resolve().parent / "static"
 
 _CSV_CHUNK = 64 * 1024
@@ -80,14 +55,9 @@ _UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
 
 class _JSONResponse(JSONResponse):
-    """JSON that a browser can actually parse.
+    """Strict JSON: NaN/Infinity become ``null`` so ``JSON.parse`` accepts the body.
 
-    Python's :func:`json.loads` accepts the non-standard ``NaN`` and ``Infinity`` tokens,
-    so a metrics line containing either survives the read and would be re-emitted by the
-    default encoder as a document ``JSON.parse`` rejects — the whole response lost to one
-    value. Non-finite floats become ``null`` instead. The sanitising walk only runs after
-    a strict dump has failed, so the common case pays one extra encode attempt and no
-    traversal.
+    The sanitising walk only runs if a strict dump fails.
     """
 
     def render(self, content: Any) -> bytes:
@@ -114,7 +84,7 @@ def _finite(value: Any) -> Any:
 
 
 def _error(status: int, message: str) -> HTTPException:
-    """Every error body in this API is ``{"message": …}``, so every raise builds one."""
+    """Build an HTTPException with the API's ``{"message": ...}`` body."""
     return HTTPException(status_code=status, detail={"message": message})
 
 
@@ -124,13 +94,7 @@ def _error(status: int, message: str) -> HTTPException:
 
 
 def _js_or(value: Any, fallback: Any) -> Any:
-    """``value || fallback`` as JavaScript evaluates it.
-
-    Needed because the handlers being ported use ``||`` on values that are empty rather
-    than absent, and Python disagrees with JavaScript about exactly those: ``[]`` and
-    ``{}`` are falsy here and truthy there. An empty system-metrics array must stay an
-    empty array, not become ``{}``.
-    """
+    """JS ``value || fallback``. Unlike Python, ``[]`` and ``{}`` count as truthy."""
     if value is None or value is False or value == "":
         return fallback
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0:
@@ -139,12 +103,10 @@ def _js_or(value: Any, fallback: Any) -> Any:
 
 
 def _attachment_filename(stem: str, extension: str) -> str:
-    """Reduce a run ID to characters that cannot break out of a header.
+    """Make a Content-Disposition filename safe.
 
-    The ID has already been proved addressable by Storage, which rejects separators and
-    NUL — but not a quote or a newline, and this value is interpolated into
-    ``Content-Disposition``. The recommended charset for a run ID (§2.1 of the data
-    contract) is exactly what survives here, so a well-named run is unchanged.
+    Storage already rejects separators and NUL but not quotes or newlines. IDs from the
+    SDK's charset pass through unchanged.
     """
     return f"{_UNSAFE_FILENAME.sub('_', stem)}.{extension}"
 
@@ -155,8 +117,7 @@ def _package_version() -> str:
     try:
         return version("mlexperimenttracker")
     except PackageNotFoundError:
-        # Running from a source tree that was never installed — the normal case for the
-        # test suite, and not worth failing a health check over.
+        # Uninstalled source tree, e.g. the test suite.
         return "0.0.0+source"
 
 
@@ -170,13 +131,10 @@ async def _read(func: Callable[..., Any], *args: Any) -> Any:
 
 
 def _locate_run(storage: Storage, run_id: str) -> tuple[str, dict] | None:
-    """Resolve a bare run ID to its project and its full run object, in one thread hop.
+    """Resolve a run ID to ``(project, run)``, or ``None``.
 
-    Run IDs are unique only by convention, so this reproduces the reader's rule: the first
-    project containing a directory of that name wins, and if that directory has no
-    readable ``metadata.json`` the run is *not found* rather than searched for elsewhere.
-    A run shadowed by a namesake in an earlier project is unreachable — which is why the
-    SDK embeds the project in the ID it generates.
+    First project with a matching directory wins; if its metadata is unreadable the run is
+    not found. The SDK puts the project in generated IDs to avoid shadowing.
     """
     located = storage.find_run(run_id)
     if located is None:
@@ -196,24 +154,14 @@ def _read_logs(
     limit: int | None,
     offset: int,
 ) -> list[dict]:
-    """Positional wrapper for the threadpool hop.
-
-    :meth:`Storage.read_logs` takes its filters keyword-only — they are three optional
-    values of two types and a positional call site would be unreadable — and
-    ``run_in_threadpool`` passes positionals. One adapter here is cheaper than loosening the
-    storage signature for the convenience of a transport.
-    """
+    """Positional adapter: ``Storage.read_logs`` filters are keyword-only."""
     return storage.read_logs(project, run_id, level=level, limit=limit, offset=offset)
 
 
 def _verify_report(storage: Storage, project: str, run_id: str) -> Any:
-    """Re-check a run's recorded world against the one that exists now.
+    """Compare a run's recorded provenance with the current state.
 
-    The verifier is imported here rather than at the top of the module, and that is a
-    deliberate coupling choice rather than an import-time optimisation: it re-hashes
-    datasets and shells out to git, so an installation that never calls this route should
-    not load it, and an installation that does not ship it at all still serves the other
-    twenty.
+    Imported lazily so the rest of the API works without the verifier. 501 if missing.
     """
     try:
         from ..verify import verify
@@ -239,36 +187,21 @@ def _health(storage: Storage) -> dict:
 
 
 class _SPAStaticFiles(StaticFiles):
-    """Static files with a single-page-app fallback.
+    """Static files with an SPA fallback to ``index.html`` for client-side routes.
 
-    The React app owns client-side routes such as ``/run/abc`` that have no file behind
-    them, so an unmatched GET has to return ``index.html`` and let the router sort it out.
-    The exception is ``/api``: an unmatched API path is a 404 in JSON, because answering
-    a mistyped endpoint with a page of HTML is how a client ends up reporting "the server
-    returned HTML" instead of the actual mistake.
-
-    That exception is taken *before* the method check, and for a reason worth stating: a
-    URL-encoded separator survives routing as a real one, so ``/api/experiment/%2fetc%2f
-    passwd`` arrives here as a three-segment path that matches no route. Letting it reach
-    the file server answers a nonexistent endpoint with 405 Method Not Allowed, which
-    tells a caller the path exists and the verb is wrong — the opposite of the truth, and
-    a difference in status code visible only when a bundle happens to be built. The
-    ``/api`` namespace belongs to the router under every method.
+    Unmatched ``/api`` paths are a JSON 404 under every method. This check comes before
+    the method check, otherwise an encoded path like ``/api/experiment/%2fetc%2fpasswd``
+    would get a misleading 405 from the file server.
     """
 
-    #: Suffixes that mean "this was meant to be a file, not a client-side route". A React
-    #: route is a path segment; an asset has an extension. Kept as a check on the last
-    #: segment rather than a fixed allowlist so a new asset type cannot silently regress.
+    # A last segment with an extension is an asset, not a client-side route.
     _ASSET_PATH = re.compile(r"\.[A-Za-z0-9]{1,8}$")
 
     async def get_response(self, path: str, scope: Scope) -> Any:
         request_path = scope.get("path", "")
         if request_path.startswith("/api"):
             raise HTTPException(status_code=404, detail={"message": "Not Found"})
-        # A missing asset must 404, not fall through to index.html. Serving HTML with a
-        # 200 for a missing .js or .png hides the failure twice over: the browser reports
-        # a MIME-type error instead of a missing file, and anything scripted against the
-        # server sees success. Only extensionless paths are client-side routes.
+        # Missing assets 404 instead of getting index.html with a 200.
         if self._ASSET_PATH.search(request_path.rsplit("/", 1)[-1]):
             return await super().get_response(path, scope)
         try:
@@ -288,13 +221,9 @@ class _SPAStaticFiles(StaticFiles):
 
 
 def create_app(storage: Storage | None = None, static_dir: Path | None = None) -> FastAPI:
-    """Build the application around a :class:`Storage`.
+    """Build the app around a :class:`Storage` (default root if omitted).
 
-    The storage instance is a parameter rather than a module-level singleton so a test can
-    hand in a root under ``tmp_path``; without that the suite would have to mutate the
-    environment and every test would share one tree. ``static_dir`` is the same argument
-    for the bundle: it defaults to the directory a release populates, and overriding it
-    lets a checkout serve a bundle built anywhere — including the one the tests build.
+    ``static_dir`` overrides where the built frontend is served from.
     """
     store = storage if storage is not None else Storage()
     bundle = STATIC_DIR if static_dir is None else Path(static_dir)
@@ -319,9 +248,8 @@ def create_app(storage: Storage | None = None, static_dir: Path | None = None) -
     _register_errors(app)
     _register_health(app, store)
     _register_dashboard(app, store)
-    # Declaration order is load-bearing twice over: `/api/experiment/all` must precede
-    # `/api/experiment/{id}`, and `/api/run/{id}/metrics/timeseries` must precede
-    # `/api/run/{id}/metrics`, or the parameterised route matches first and swallows them.
+    # Order matters: fixed paths like /api/experiment/all must be registered before the
+    # parameterised routes that would otherwise match them.
     _register_experiments(app, store)
     _register_runs(app, store)
     _register_ui(app, bundle)
@@ -331,9 +259,7 @@ def create_app(storage: Storage | None = None, static_dir: Path | None = None) -
 def _register_health(app: FastAPI, store: Storage) -> None:
     @app.get("/api/health", response_model=None)
     async def health() -> dict:
-        """Answers the two questions a support conversation opens with: is it running, and
-        is it looking where you think it is looking. The Express server printed the
-        resolved storage path once at startup, into a terminal nobody still has open."""
+        """Status, version, storage root and project/run counts."""
         return await _read(_health, store)
 
 
@@ -355,8 +281,7 @@ def _register_experiments(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/experiment/{experiment_id}/runs", response_model=None)
     async def experiment_runs(experiment_id: str) -> list[dict]:
-        """Never 404s. An unknown — or unaddressable — project is an empty comparison
-        table, which is what the frontend renders while a project is still empty."""
+        """Never 404s; an unknown project returns an empty list."""
         return await _read(store.read_experiment_runs, experiment_id)
 
     @app.get("/api/experiment/{experiment_id}", response_model=None)
@@ -375,11 +300,10 @@ def _register_experiments(app: FastAPI, store: Storage) -> None:
 
     @app.patch("/api/experiment/{experiment_id}", response_model=None)
     async def update_experiment(experiment_id: str, request: Request) -> dict:
-        """Writes ``project_metadata.json``, and the experiment read paths open it.
+        """Save the description to ``project_metadata.json``.
 
-        Until GAPS M3 was fixed nothing did, so this edit appeared to save and reverted on
-        the next load. A stored description now outranks the one derived from the first
-        run's notes; clearing it restores the derivation.
+        A stored description overrides the one derived from the first run's notes; an
+        empty one restores the derived value.
         """
         body = await _body(request)
         description = _string_field(body, "description")
@@ -400,8 +324,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/run/{run_id}/metrics/timeseries", response_model=None)
     async def metrics_timeseries(run_id: str, metric: str | None = None) -> list[dict]:
-        """Two shapes from one path: with ``metric``, one row per step carrying that key;
-        without it, the raw wide rows verbatim. The frontend relies on both."""
+        """With ``metric``, one row per step for that key; without it, the raw rows."""
         project, _ = await locate(run_id)
         return await _read(store.read_metrics_timeseries, project, run_id, metric)
 
@@ -436,15 +359,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/run/{run_id}/logs/download", response_model=None)
     async def download_logs(run_id: str) -> Response:
-        """The whole log as a plain-text attachment.
-
-        A run that captured nothing downloads an empty file rather than answering 404,
-        matching the metrics export two handlers up: both are exports of a file that may
-        legitimately be empty, and a client that has to distinguish "no logs" from "no run"
-        already has the 404 from the run lookup to do it with. The provenance patch route
-        chooses the opposite because a patch is evidence — its absence is a fact about the
-        run, not an empty document.
-        """
+        """The whole log as a plain-text attachment. No logs gives an empty file, not 404."""
         project, _ = await locate(run_id)
         text = await _read(store.read_logs_text, project, run_id)
         return Response(
@@ -463,14 +378,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[dict]:
-        """Captured run output, oldest first, as a bare array.
-
-        Paging is offered rather than required: a long run's log is the largest thing this
-        API can return, and a client that renders a tail wants the last page, not eight
-        megabytes of JSON. An unknown ``level`` filters everything out instead of erroring
-        — the vocabulary is closed and a filter nobody can satisfy is an empty list, which
-        is exactly what the caller asked for.
-        """
+        """Captured output, oldest first. Optional paging; an unknown ``level`` returns []."""
         project, _ = await locate(run_id)
         return await _read(_read_logs, store, project, run_id, level, limit, offset)
 
@@ -491,13 +399,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/run/{run_id}/provenance", response_model=None)
     async def provenance(run_id: str) -> dict:
-        """The reproducibility manifest, verbatim.
-
-        Absence is a 404 rather than an empty object because it is a fact about the run
-        and not a fact about this request: every run written before format 1.1, and every
-        run whose capture failed, has no manifest, and a client has to be able to tell
-        "nothing was recorded" from "everything matched".
-        """
+        """The provenance manifest as stored. 404 if none was recorded."""
         project, _ = await locate(run_id)
         manifest = await _read(store.read_provenance, project, run_id)
         if manifest is None:
@@ -506,13 +408,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/run/{run_id}/patch", response_model=None)
     async def patch(run_id: str) -> Response:
-        """The captured diff, as the bytes on disk.
-
-        Served as an attachment and never decoded. ``git diff --binary`` output is a
-        patch only for as long as nobody re-encodes it, and the one thing a user does with
-        this file is feed it back to ``git apply``. A zero-length file reads as absent:
-        the writer never produces one, so an empty patch is a patch somebody emptied.
-        """
+        """The captured diff as raw bytes, so ``git apply`` still works. Empty counts as 404."""
         project, _ = await locate(run_id)
         data = await _read(store.read_patch, project, run_id)
         if not data:
@@ -528,14 +424,7 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.get("/api/run/{run_id}/verify", response_model=None)
     async def verify(run_id: str) -> Any:
-        """Drift between the world the manifest recorded and the world as it is now.
-
-        The manifest is checked for first so that a run with nothing recorded answers the
-        same 404 as the provenance route, with the same message. Verification re-hashes
-        datasets and runs git, so it is offloaded like every other disk read here — it is
-        the slowest thing this server does, and the only one whose cost is unbounded by
-        the size of the run directory.
-        """
+        """Drift between the recorded provenance and now. Same 404 as /provenance if none."""
         project, _ = await locate(run_id)
         if await _read(store.read_provenance, project, run_id) is None:
             raise _error(404, "No provenance recorded")
@@ -555,10 +444,8 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
     @app.patch("/api/run/{run_id}/tags", response_model=None)
     async def update_tags(run_id: str, request: Request) -> dict:
-        """The array check precedes the lookup, so a malformed body is a 400 whether or
-        not the run exists — a non-array ``tags`` written to disk returns 500 for the
-        entire dashboard, so this is the one piece of validation the format cannot do
-        without."""
+        """Replace a run's tags. Non-array ``tags`` is a 400, checked before the lookup,
+        since writing one to disk breaks the whole dashboard."""
         body = await _body(request)
         tags = body.get("tags")
         if not isinstance(tags, list):
@@ -579,11 +466,9 @@ def _register_runs(app: FastAPI, store: Storage) -> None:
 
 
 def _register_ui(app: FastAPI, bundle: Path) -> None:
-    """Serve the built bundle if it is there, and say so plainly if it is not.
+    """Mount the built frontend if present, else a JSON note at ``/``.
 
-    Mounted last, so every API route is matched before the catch-all — and registered at
-    all only when there is something to serve, because a mount that resolves to an empty
-    directory answers every page request with a 404 that looks like a routing bug.
+    Registered last so API routes match before the catch-all.
     """
     if bundle.is_dir() and (bundle / "index.html").is_file():
         app.mount("/", _SPAStaticFiles(directory=bundle, html=True), name="ui")
@@ -609,12 +494,7 @@ def _register_ui(app: FastAPI, bundle: Path) -> None:
 
 
 async def _body(request: Request) -> dict:
-    """Parse a JSON object body, tolerating everything else as empty.
-
-    The handlers validate the one field they care about themselves, and this keeps a
-    missing content type or a malformed body producing the same ``{"message": …}`` shape
-    as every other error rather than a validation document in a different schema.
-    """
+    """Parse a JSON object body; anything else is ``{}``. Handlers validate fields."""
     try:
         value = await request.json()
     except (ValueError, UnicodeDecodeError):
@@ -623,10 +503,7 @@ async def _body(request: Request) -> dict:
 
 
 def _string_field(body: dict, key: str) -> str:
-    """A description is written into a field the UI renders as text — and, for a run,
-    into the field that doubles as its display name. A number or an object there produces
-    a run whose name is ``[object Object]``, so the type is checked rather than coerced;
-    an absent key is an empty description, which is what clearing the box sends."""
+    """Return a string field, ``""`` if absent. Non-strings are a 400, not coerced."""
     value = body.get(key)
     if value is None:
         return ""
@@ -636,13 +513,7 @@ def _string_field(body: dict, key: str) -> str:
 
 
 def _chunks(text: str) -> Iterator[bytes]:
-    """Hand the CSV to the client in pieces.
-
-    Storage builds the whole document in memory first, so this bounds the size of each
-    write rather than the peak memory of the request; a genuinely streaming export needs a
-    row iterator on the storage side, and that is worth doing when a metrics file is large
-    enough to matter.
-    """
+    """Yield the CSV in chunks. The whole document is still built in memory first."""
     data = text.encode("utf-8")
     for start in range(0, len(data), _CSV_CHUNK):
         yield data[start : start + _CSV_CHUNK]
@@ -664,16 +535,12 @@ def _register_errors(app: FastAPI) -> None:
     async def validation_error(
         request: Request, exc: RequestValidationError
     ) -> _JSONResponse:
-        """FastAPI's default is a list of error objects naming the offending fields. This
-        API answers in one shape, and the detail is of no use to the only client there
-        is."""
+        """Replace FastAPI's field-error list with the usual ``{"message": ...}`` 400."""
         return _JSONResponse(status_code=400, content={"message": "Invalid request"})
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> _JSONResponse:
-        """The reader this replaces returned ``error.message`` to the client, which for a
-        filesystem failure is an absolute server path. The message goes to the log, where
-        the operator is; the client is told that something failed and nothing else."""
+        """Log the error; the client gets a generic 500 so no server paths leak."""
         logger.exception("unhandled error serving %s %s", request.method, request.url.path)
         return _JSONResponse(status_code=500, content={"message": "Internal server error"})
 
@@ -689,7 +556,7 @@ def serve(
     storage: Storage | None = None,
     log_level: str = "info",
 ) -> None:
-    """Block, serving the app. Imported lazily so the SDK half never pulls in uvicorn."""
+    """Run the app with uvicorn (imported lazily). Blocks."""
     import uvicorn
 
     uvicorn.run(create_app(storage), host=host, port=port, log_level=log_level)

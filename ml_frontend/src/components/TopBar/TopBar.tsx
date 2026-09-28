@@ -13,10 +13,7 @@ interface TopBarProps {
   actions?: ReactNode;
 }
 
-/**
- * The bar pinned to the top of the main pane: where you are, how big the archive is, and the
- * controls that belong to the page. It stays put while the page scrolls under it.
- */
+/** Bar pinned over the main pane: location, archive size and page controls. */
 const TopBar = ({ crumbs, actions }: TopBarProps) => {
   const theme = useTheme();
   const { data } = useDashboard();

@@ -1,18 +1,7 @@
-"""Verification and replay, against real repositories rather than mocks.
+"""Verify and replay tests, run against real throwaway git repos in tmp_path (no mocks).
 
-Every git assertion below runs against a throwaway repository built with the real ``git``
-binary in ``tmp_path``, for the reason ``test_provenance.py`` gives: what breaks in this
-half of the feature is never the command that was typed, it is what git actually answers —
-a patch that will not apply to the tree it was captured from, a commit that survives a
-``gc`` because a stale ref still points at it, a worktree that git refuses because the
-target is inside the repository.
-
-Two tests carry more weight than the rest and are worth naming here. One asserts that a run
-verified immediately after capture is **reproducible** — if that ever goes red the feature
-is worthless, because it is the baseline every other answer is measured from. The other
-asserts that after ``materialise`` the original working tree is **byte for byte what it
-was**: that is the promise that makes this safe to point at a repository somebody is
-working in, and it is the promise a checkout-based implementation would break.
+The two key checks: a run verified right after capture is reproducible, and materialise
+leaves the original working tree byte-identical.
 """
 
 from __future__ import annotations
@@ -43,7 +32,7 @@ DIRTY_TEXT = "def main():\n    # uncommitted work\n    return 42\n"
 
 
 def _git(cwd: Path, *args: str) -> str:
-    """Run git for test setup. Unlike the modules under test, this one is allowed to fail."""
+    """Run git for test setup; raises on failure."""
     result = subprocess.run(
         ["git", *args],
         cwd=str(cwd),
@@ -63,9 +52,8 @@ def _write(path: Path, text: str) -> None:
 
 
 def _configure(repo: Path) -> None:
-    # Local config only, overriding the developer's global config. ``core.autocrlf`` is the
-    # one that matters: with the Git for Windows default of ``true`` the checkout and the
-    # patch disagree about line endings and every apply in this file would fail.
+    # Override global config. autocrlf=true (Git for Windows default) would make every
+    # patch apply here fail on line endings.
     _git(repo, "config", "user.email", "tests@example.invalid")
     _git(repo, "config", "user.name", "Test Runner")
     _git(repo, "config", "commit.gpgsign", "false")
@@ -74,7 +62,7 @@ def _configure(repo: Path) -> None:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A repository with one commit on ``main``: a text file, a binary file, a gitignore."""
+    """Repo with one commit on main: a text file, a binary file, a gitignore."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-b", "main")
@@ -93,7 +81,7 @@ def storage(tmp_path: Path) -> Storage:
 
 
 def _dirty(repo: Path) -> None:
-    """Uncommitted work of all three kinds the patch has to carry."""
+    """Modified text, modified binary, and a staged new file."""
     _write(repo / "train.py", DIRTY_TEXT)
     (repo / "model.bin").write_bytes(BINARY_BLOB[::-1])
     _write(repo / "staged.py", "STAGED = True\n")
@@ -108,7 +96,7 @@ def _record(
     datasets: list[dict] | None = None,
     capture_diff: bool = True,
 ) -> tuple[str, str]:
-    """Capture provenance for ``repo`` and file it under a real run directory."""
+    """Capture provenance for repo and store it under a new run."""
     storage.create_run("proj", run_id, {"created_at": "2026-08-13T10:00:00+05:30"})
     manifest, patch = capture(repo, capture_diff=capture_diff, datasets=datasets)
     assert storage.write_provenance("proj", run_id, manifest.to_dict(), patch) is True
@@ -116,12 +104,7 @@ def _record(
 
 
 def _snapshot(root: Path) -> dict[str, bytes]:
-    """Every tracked-or-not file under ``root`` except git's own bookkeeping.
-
-    ``.git`` is excluded deliberately and is the one thing ``materialise`` is allowed to
-    change: registering a worktree writes there. Everything a user would call "my work" is
-    in this mapping.
-    """
+    """All files under root except .git (materialise may write there to add a worktree)."""
     files: dict[str, bytes] = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
@@ -133,7 +116,7 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 # --------------------------------------------------------------------------------------
-# verify — the baseline
+# verify: baseline
 # --------------------------------------------------------------------------------------
 
 
@@ -150,19 +133,14 @@ def test_a_clean_run_verified_immediately_after_capture_is_reproducible(
     assert report.by_name("git.commit").status is CheckStatus.OK
     assert report.by_name("packages").status is CheckStatus.OK
     assert report.by_name("python.version").status is CheckStatus.OK
-    # No patch was captured from a clean tree, so there is no claim to check and no check.
+    # Clean tree, no patch, so no patch check.
     assert report.by_name("git.patch") is None
 
 
 def test_a_dirty_run_verified_immediately_after_capture_is_reproducible(
     storage: Storage, repo: Path
 ) -> None:
-    """The case a forward-only ``git apply --check`` gets wrong.
-
-    The patch is the tree's own uncommitted work, so it cannot be applied *again* on top of
-    itself — a verifier that only tried forwards would call an untouched tree drifted, one
-    second after capture, and nobody would ever trust the word again.
-    """
+    """The patch is already in the tree, so a forward-only apply check would call it drift."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
 
@@ -178,17 +156,10 @@ def test_a_dirty_run_verified_immediately_after_capture_is_reproducible(
 def test_a_dirty_run_verifies_on_a_crlf_checkout(
     storage: Storage, tmp_path: Path
 ) -> None:
-    """The same baseline, on the configuration every stock Windows machine actually has.
+    """Same baseline with core.autocrlf=true (the Git for Windows default).
 
-    ``core.autocrlf=true`` is the Git for Windows *system* default, and under it the working
-    tree holds CRLF while the index — and therefore the captured patch, which is repository
-    content — holds LF. Every other repository in this file pins ``core.autocrlf=false``, so
-    their working trees are LF and the distinction never shows up; a verifier that forced the
-    conversion off passed all of them and still called a freshly captured run DRIFTED on a
-    developer's own laptop, naming the uncommitted work as the thing that had changed.
-
-    Written with explicit ``\\r\\n`` rather than by trusting a checkout, so the tree is CRLF
-    on every platform and this test fails on Linux too if the override comes back.
+    The working tree is CRLF but the patch is LF. Other tests pin autocrlf=false and miss
+    this. Files are written with explicit CRLF so the test also runs on Linux.
     """
     repo = tmp_path / "crlf-repo"
     repo.mkdir()
@@ -211,7 +182,7 @@ def test_a_dirty_run_verifies_on_a_crlf_checkout(
 def test_the_patch_check_passes_against_a_clean_checkout_of_the_base_commit(
     storage: Storage, repo: Path, tmp_path: Path
 ) -> None:
-    """The other direction of the same truth: forwards, onto a tree without the changes."""
+    """Forward direction: the patch applies to a tree without the changes."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     _git(repo, "stash", "--include-untracked")
@@ -221,14 +192,13 @@ def test_the_patch_check_passes_against_a_clean_checkout_of_the_base_commit(
     patch_check = report.by_name("git.patch")
     assert patch_check.status is CheckStatus.OK, patch_check.detail
     assert "applies to the tree" in patch_check.detail
-    # The tree is clean now and the manifest says it was dirty: that much did drift, and
-    # the report says so on the check that asks about it rather than on the patch check.
+    # Tree is clean but was dirty at capture: drift shows on the worktree check.
     assert report.by_name("git.worktree").status is CheckStatus.DRIFT
     assert report.verdict is Verdict.DRIFTED
 
 
 # --------------------------------------------------------------------------------------
-# verify — drift
+# verify: drift
 # --------------------------------------------------------------------------------------
 
 
@@ -247,9 +217,7 @@ def test_a_new_commit_drifts_head_without_disturbing_the_recorded_commit(
     assert head.status is CheckStatus.DRIFT
     assert head.expected == recorded
     assert head.actual != recorded and len(head.actual) == 40
-    # The commit itself is still in the repository — a new commit on top of it does not
-    # remove it, and reporting both as drift would make the report useless for deciding
-    # whether the code is still recoverable.
+    # The recorded commit still exists, so it is not drift.
     assert report.by_name("git.commit").status is CheckStatus.OK
     assert report.verdict is Verdict.DRIFTED
 
@@ -257,7 +225,7 @@ def test_a_new_commit_drifts_head_without_disturbing_the_recorded_commit(
 def test_a_commit_missing_from_this_repository_is_drift_and_never_a_crash(
     storage: Storage, repo: Path, tmp_path: Path
 ) -> None:
-    """Verifying against the wrong repository, which is what a fresh clone of a fork is."""
+    """Verifying against the wrong repo, e.g. a fresh clone of a fork."""
     project, run_id = _record(storage, repo)
     other = tmp_path / "other"
     other.mkdir()
@@ -279,14 +247,13 @@ def test_a_commit_missing_from_this_repository_is_drift_and_never_a_crash(
 def test_a_garbage_collected_commit_is_drift_and_never_a_crash(
     storage: Storage, repo: Path
 ) -> None:
-    """The real deletion: the commit is unreferenced and pruned out of the object store."""
+    """The commit is unreferenced and pruned from the object store."""
     _write(repo / "train.py", "def main():\n    return 2\n")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "second")
     project, run_id = _record(storage, repo)
     _git(repo, "reset", "--hard", "HEAD~1")
-    # ORIG_HEAD is a ref like any other and keeps the object alive through a prune, which
-    # is exactly why "I reset, so it is gone" is wrong often enough to be worth testing.
+    # ORIG_HEAD would keep the commit alive through the prune.
     (repo / ".git" / "ORIG_HEAD").unlink(missing_ok=True)
     _git(repo, "reflog", "expire", "--expire=now", "--all")
     _git(repo, "gc", "--prune=now")
@@ -324,9 +291,7 @@ def test_package_drift_is_detected_and_counted(storage: Storage, repo: Path) -> 
 
 
 def test_package_names_are_compared_normalised(storage: Storage, repo: Path) -> None:
-    """``ruamel.yaml`` and ``ruamel-yaml`` are one distribution, not one added and one
-    removed. Without normalisation a manifest written by one tool and read by another
-    reports drift in packages nobody touched."""
+    """ruamel.yaml and ruamel-yaml are the same distribution, not one added and one removed."""
     project, run_id = _record(storage, repo)
     manifest = storage.read_provenance(project, run_id)
     manifest["packages"] = {
@@ -359,8 +324,7 @@ def test_a_replaced_dataset_is_drift_and_a_missing_one_is_not(
 
     (repo / "data" / "train.csv").unlink()
     missing = verify(storage, project, run_id, cwd=repo).by_name("dataset:data/train.csv")
-    # Not drift: a relative path that is not there is at least as likely to mean the
-    # verification ran from the wrong directory as it is to mean the data was deleted.
+    # Not drift: a missing relative path may just mean the wrong cwd.
     assert missing.status is CheckStatus.UNKNOWN
     assert "wrong directory" in missing.detail
 
@@ -380,7 +344,7 @@ def test_rehashing_can_be_turned_off(
 
 
 # --------------------------------------------------------------------------------------
-# verify — the unanswerable
+# verify: unknown
 # --------------------------------------------------------------------------------------
 
 
@@ -416,7 +380,7 @@ def test_verifying_outside_a_repository_is_unknown_not_drift(
     assert repository.status is CheckStatus.UNKNOWN
     assert report.by_name("git.commit") is None
     assert report.verdict is Verdict.UNVERIFIABLE
-    # The half of the manifest that has nothing to do with git is still answered.
+    # Non-git checks still run.
     assert report.by_name("python.version").status is CheckStatus.OK
 
 
@@ -447,8 +411,7 @@ def test_a_manifest_with_no_git_state_is_unknown_not_drift(storage: Storage) -> 
 
 
 def test_a_deleted_patch_is_unknown_not_drift(storage: Storage, repo: Path) -> None:
-    """The patch is the one file a user is told they may delete, so its absence must not
-    be reported as if the tree had changed."""
+    """Users may delete the patch file, so its absence is not tree drift."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     (storage.run_path(project, run_id) / contract.PATCH_FILE).unlink()
@@ -486,8 +449,7 @@ def test_a_truncated_patch_is_unknown_because_it_cannot_apply(
 
 
 def test_a_changed_patch_at_the_recorded_commit_is_drift(storage: Storage, repo: Path) -> None:
-    """The one case where a failed apply *is* established drift: same commit checked out,
-    and the tree neither contains the patch nor accepts it."""
+    """Same commit, and the tree neither contains nor accepts the patch: real drift."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     _write(repo / "train.py", "def main():\n    return 'something else entirely'\n")
@@ -524,7 +486,7 @@ def test_the_report_serialises_to_plain_json_types(storage: Storage, repo: Path)
 
 
 # --------------------------------------------------------------------------------------
-# replay — the plan
+# replay: plan
 # --------------------------------------------------------------------------------------
 
 
@@ -565,7 +527,7 @@ def test_a_plan_carries_the_worktree_the_patch_and_the_command(
 def test_a_plan_states_the_boundary_of_what_it_can_restore(
     storage: Storage, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The honest-boundary requirement, asserted rather than left to a README."""
+    """The plan warns about what it cannot restore (exact packages, datasets)."""
     _write(repo / "data" / "train.csv", "a,b\n1,2\n")
     monkeypatch.chdir(repo)
     project, run_id = _record(storage, repo, datasets=[hash_path("data/train.csv")])
@@ -602,8 +564,7 @@ def test_the_script_carries_the_commands_the_warnings_and_the_requirements(
     assert f"cat > {REQUIREMENTS_FILE} <<'REPLAY_EOF'" in script
     assert "REPLAY_EOF" in script
     assert "# WARNING:" in script
-    # Every line of a step that is not required is commented out rather than dropped, so
-    # reading the script still shows what a full reconstruction would have done.
+    # Optional steps are commented out, not dropped.
     assert "pip install -r" in script
 
 
@@ -622,7 +583,7 @@ def test_the_plan_serialises_to_plain_json_types(
 
 
 # --------------------------------------------------------------------------------------
-# replay — materialise
+# replay: materialise
 # --------------------------------------------------------------------------------------
 
 
@@ -648,11 +609,7 @@ def test_materialise_builds_a_worktree_at_the_commit_with_the_patch_applied(
 def test_materialise_leaves_the_original_working_tree_byte_identical(
     storage: Storage, repo: Path, tmp_path: Path
 ) -> None:
-    """The promise that makes this safe to run against a repository somebody is working in.
-
-    A ``git checkout`` implementation of the same feature passes every other test in this
-    file and fails this one by destroying the uncommitted work it was built to preserve.
-    """
+    """A git-checkout implementation would pass the other tests and fail this one."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     before = _snapshot(repo)
@@ -745,8 +702,7 @@ def test_materialise_can_skip_the_patch_and_says_that_it_did(
 def test_a_patch_that_no_longer_applies_warns_and_keeps_the_worktree(
     storage: Storage, repo: Path, tmp_path: Path
 ) -> None:
-    """Failing loudly beats failing destructively: the checkout is still the best artefact
-    available, so it survives, and the warning leads with the failure."""
+    """The worktree is kept and the first warning names the failed patch."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     run_dir = storage.run_path(project, run_id)
@@ -770,8 +726,7 @@ def test_a_patch_that_no_longer_applies_warns_and_keeps_the_worktree(
 def test_a_verified_replay_of_a_materialised_worktree_is_reproducible(
     storage: Storage, repo: Path, tmp_path: Path
 ) -> None:
-    """End to end, and the milestone gate in one assertion: capture here, reconstruct
-    there, and the reconstruction verifies against the same manifest."""
+    """End to end: capture, materialise elsewhere, and verify against the same manifest."""
     _dirty(repo)
     project, run_id = _record(storage, repo)
     target = tmp_path / "replayed"
@@ -784,7 +739,6 @@ def test_a_verified_replay_of_a_materialised_worktree_is_reproducible(
     assert report.by_name("git.patch").status is CheckStatus.OK, report.by_name(
         "git.patch"
     ).detail
-    # Dirty, as the manifest recorded — the untracked requirements file replay wrote is
-    # enough to make the worktree dirty on its own, which is exactly why this check is not
-    # allowed to stand in for a content comparison. The patch check above is that.
+    # The requirements file alone makes it dirty, so this is not a content check.
+    # The patch check above is.
     assert report.by_name("git.worktree").status is CheckStatus.OK

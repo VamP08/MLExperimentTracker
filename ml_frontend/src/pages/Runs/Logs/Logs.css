@@ -1,6 +1,4 @@
-/* Every class here is prefixed `logs-`. CSS in this app is global (GAPS N16 counts the
-   collisions), so a generic name here restyles the next component that wants one. The
-   level and source marks (.lvl, .src) come from Overview.css, shared with the log tail. */
+/* Prefixed `logs-` because CSS here is global. .lvl and .src come from Overview.css. */
 
 .logs-toolbar {
   display: flex;
@@ -58,8 +56,7 @@
   flex: 1;
 }
 
-/* On a phone the three narrow columns become one line above the message, which then gets
-   the full width instead of scrolling sideways. */
+/* On phones the narrow columns stack above the message so it gets the full width. */
 @media (max-width: 640px) {
   .logs-table,
   .logs-table tbody {

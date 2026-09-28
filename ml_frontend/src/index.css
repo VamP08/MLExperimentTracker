@@ -1,8 +1,5 @@
-/*
- * The design system: tokens for both themes, base type, and the handful of primitives every
- * page is built from. Colour is deliberately scarce — one blue accent, semantic state colours
- * on status marks only, and a spectral set reserved for chart series.
- */
+/* Design tokens for both themes, base type and shared primitives. Colour is kept to one
+   accent, state colours on status marks, and a spectral set for chart series. */
 @import "@fontsource-variable/source-sans-3/wght.css";
 @import "@fontsource-variable/jetbrains-mono/wght.css";
 
@@ -45,7 +42,7 @@
   --unk-ink: #374151;
   --unk-soft: #f3f4f6;
 
-  /* Chart series: the only multicolour in the product. */
+  /* Chart series colours. */
   --s1: #1f9a76;
   --s2: #3f86c9;
   --s3: #bf5a92;
@@ -63,7 +60,7 @@
   --shadow-pop: 0 8px 24px rgba(17, 24, 39, 0.12), 0 1px 3px rgba(17, 24, 39, 0.08);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  /* Names older component stylesheets still read. */
+  /* Old names still used by some component stylesheets. */
   --primary: var(--accent);
   --primary-hover: var(--accent-ink);
   --primary-light: var(--accent-soft);
@@ -154,8 +151,7 @@ html,
 body,
 #root {
   height: 100%;
-  /* clip, not hidden: a hidden box can still be scrolled by scrollIntoView, which would slide
-     the whole shell up and leave a gap under it. Only the main pane scrolls. */
+  /* clip, not hidden: a hidden box can still be scrolled by scrollIntoView and shift the shell. */
   overflow: clip;
 }
 
@@ -394,7 +390,7 @@ pre,
   background: var(--hover);
 }
 
-/* Status badges: the only place state colour appears outside charts. */
+/* Status badges. */
 .badge {
   display: inline-flex;
   align-items: center;

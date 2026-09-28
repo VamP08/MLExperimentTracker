@@ -57,10 +57,8 @@ function formatWhen(iso: string | null): { text: string; zone: string } | null {
 }
 
 /**
- * The run's name, state and the facts that identify it, in one block.
- *
- * The title is the run's description — the storage format keeps them in one `notes` field, so
- * editing one renames the run. The edit control says so rather than letting it surprise.
+ * Run name, state and identifying facts. The title is the run's `notes` field, which is also
+ * its description, so editing one renames the run.
  */
 const RunHeader = ({ run, git, onSaveDescription, onSaveTags }: RunHeaderProps) => {
   const [editing, setEditing] = useState(false);

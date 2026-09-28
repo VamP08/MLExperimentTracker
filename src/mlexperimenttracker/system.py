@@ -1,24 +1,9 @@
 """Background sampling of host resources into ``system_metrics.json``.
 
-Three properties drive every decision in this module.
-
-It must never fail a run. Resource sampling is a nicety; a training job that dies because
-a GPU query returned an unexpected struct is a worse product than one that shows an empty
-System tab. Every read is wrapped, every source can disappear mid-run, and a source that
-fails repeatedly is dropped rather than retried forever.
-
-It must not require anything to be installed. ``psutil`` and ``pynvml`` are optional
-extras, imported lazily and probed once, so importing the SDK in a training script costs
-nothing and adds no dependency resolution to the user's environment.
-
-Its output must be homogeneous. The reader decides which table columns to render by
-looking at the keys of the **first** sample only (``SystemMetrics.tsx:179-183``), so the
-key set is fixed at :meth:`SystemSampler.start` and every later sample carries exactly
-those keys — a GPU that appears half way through a run would otherwise be invisible, and
-a GPU that vanishes would leave holes in a table that has already been laid out.
-
-The file is strict JSON rather than JSONL (DATA-CONTRACT 3.8), which means the whole
-array is rewritten on every tick. That is the reason for the sample cap below.
+Never fails the run: every read is wrapped and repeatedly failing sources are dropped.
+``psutil``/``pynvml`` are optional and imported lazily. The key set is fixed at start,
+since the UI picks table columns from the first sample. The file is a JSON array that's
+rewritten every tick, hence the sample cap.
 """
 
 from __future__ import annotations
@@ -34,20 +19,14 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance only
 
 __all__ = ["SystemSampler", "DEFAULT_INTERVAL", "DEFAULT_MAX_SAMPLES"]
 
-#: Ten seconds over a twelve-hour run is 4,320 samples — roughly half a megabyte, which
-#: is cheap to rewrite. Faster sampling buys nothing: only the first twenty rows are ever
-#: displayed and the stat cards are means over the whole array.
+# 12h at 10s is 4320 samples, about half a MB. The UI only shows the first 20 rows and
+# whole-array means, so faster sampling buys nothing.
 DEFAULT_INTERVAL: float = 10.0
 
-#: Above this many samples the history is halved by dropping every second sample, which
-#: keeps whole-run coverage at a coarser resolution instead of either truncating the tail
-#: or rewriting a file that grows without bound for a week-long run. Sampling itself
-#: continues at the configured interval; only the retained history is thinned.
+# Past this, every second sample is dropped: coarser history but still whole-run coverage.
 DEFAULT_MAX_SAMPLES: int = 4320
 
-#: After this many consecutive failed ticks the sampler gives up. A transient failure —
-#: a driver reload, a momentary permission error — should not stop sampling; a permanent
-#: one should not burn a thread and a warning every interval for the rest of the run.
+# Consecutive failed ticks before giving up. Tolerates transient driver/permission errors.
 _MAX_CONSECUTIVE_FAILURES: int = 5
 
 _MISSING: Any = object()
@@ -55,11 +34,7 @@ _psutil_cache: Any = _MISSING
 
 
 def _psutil() -> Any:
-    """Import ``psutil`` once and remember the answer, including the negative one.
-
-    Repeating a failed import on every tick is measurably expensive — the import system
-    walks the whole path each time — and the answer cannot change during a run.
-    """
+    """Import ``psutil`` once and cache the result, including failure."""
     global _psutil_cache
     if _psutil_cache is _MISSING:
         try:
@@ -72,11 +47,9 @@ def _psutil() -> Any:
 
 
 class _GpuProbe:
-    """NVML handles for every visible device, or nothing at all.
+    """NVML handles for every visible GPU.
 
-    Utilisation is averaged across devices and memory is summed, because the contract has
-    one scalar for each and a single-GPU box — the common case — must read exactly right.
-    On a multi-GPU box the average is the honest summary of "how busy is the accelerator".
+    The format has one value each, so utilisation is averaged and memory summed.
     """
 
     __slots__ = ("_nvml", "_handles")
@@ -100,8 +73,7 @@ class _GpuProbe:
         except Exception:
             return None
         if not handles:
-            # A machine with the library installed and no device is not a GPU machine;
-            # emitting zero-valued GPU columns there would be a lie the UI cannot qualify.
+            # Library but no device: don't emit zero-valued GPU columns.
             try:
                 pynvml.nvmlShutdown()
             except Exception:
@@ -131,11 +103,9 @@ class _GpuProbe:
 
 
 class SystemSampler:
-    """Writes Shape A — a JSON array of homogeneous samples — on a daemon thread.
+    """Writes a JSON array of same-keyed samples from a daemon thread.
 
-    Daemon, because a sampler must never be the reason a finished training script keeps
-    the interpreter alive; the run's terminal-state hook stops it explicitly before exit,
-    so the daemon flag only matters for exits that skip every hook.
+    Daemon so it never keeps the interpreter alive; finish() normally stops it first.
     """
 
     def __init__(
@@ -149,8 +119,7 @@ class SystemSampler:
     ) -> None:
         self._storage = storage
         self._path = path
-        # Below half a second the sampler costs more than it measures: psutil's own
-        # memory and disk reads are syscall-bound and the file rewrite is O(samples).
+        # Below 0.5s the sampling and O(n) rewrite cost more than they measure.
         self._interval = max(0.5, float(interval))
         self._max_samples = max(2, int(max_samples))
         self._disk_path = str(disk_path) if disk_path is not None else None
@@ -164,7 +133,7 @@ class SystemSampler:
 
     @property
     def available(self) -> bool:
-        """False when nothing on this host can be sampled, which is not an error."""
+        """False when nothing on this host can be sampled."""
         return bool(self._keys)
 
     @property
@@ -173,11 +142,10 @@ class SystemSampler:
             return len(self._samples)
 
     def start(self) -> bool:
-        """Probe, take the first sample synchronously, then run.
+        """Probe sources, take the first sample synchronously, then start the thread.
 
-        The first sample is taken here rather than after the first interval so that a run
-        shorter than one interval still produces a file, and so that the key set — which
-        the reader freezes from sample one — is decided before any concurrency exists.
+        Sampling once up front means short runs still get a file and the key set is fixed
+        before the thread starts. Returns False if nothing can be sampled.
         """
         if self._thread is not None:
             return self.available
@@ -186,8 +154,7 @@ class SystemSampler:
         self._gpu = _GpuProbe.open()
         keys: list[str] = ["timestamp"]
         if psutil is not None:
-            # Primes the internal counter: the first cpu_percent call with no interval
-            # always returns 0.0 because it has no previous reading to difference against.
+            # Prime cpu_percent; its first call with no interval always returns 0.0.
             try:
                 psutil.cpu_percent(interval=None)
                 keys.extend(
@@ -201,9 +168,7 @@ class SystemSampler:
             keys.extend(["gpu_utilization", "gpu_memory_used_mb"])
 
         if len(keys) <= 1:
-            # Only a timestamp is available, which renders an empty table. Say nothing and
-            # write nothing rather than leaving a file that means "sampling was on and
-            # found nothing" — absent and empty are indistinguishable to the reader anyway.
+            # Timestamp only would render an empty table, so write nothing.
             self._keys = ()
             self._close_gpu()
             return False
@@ -218,11 +183,9 @@ class SystemSampler:
         return True
 
     def stop(self, *, join_timeout: float = 2.0) -> None:
-        """Stop sampling and flush. Safe to call from a signal handler and twice.
+        """Stop sampling and flush. Safe to call twice or from a signal handler.
 
-        The join is bounded because this runs on the crash path: a sampler wedged inside a
-        driver call must not stop the run from recording its terminal state, and the
-        thread is a daemon, so abandoning it is survivable.
+        The join is bounded so a thread stuck in a driver call can't block finish().
         """
         self._stop.set()
         thread = self._thread
@@ -262,12 +225,10 @@ class SystemSampler:
         return True
 
     def _sample(self) -> dict[str, float] | None:
-        """One sample carrying exactly the frozen key set, or ``None`` if nothing read.
+        """One sample with exactly the frozen key set, or ``None``.
 
-        A field whose source fails on this tick is filled from the previous sample rather
-        than omitted, because omitting it would make the array heterogeneous and the
-        reader's column layout — taken from sample one — would render a blank cell with no
-        explanation. Carrying the last known value is the smaller lie and the visible one.
+        A source that fails this tick reuses the previous value so every sample keeps the
+        same keys.
         """
         if not self._keys:
             return None
@@ -317,7 +278,7 @@ class SystemSampler:
             return None
 
     def _flush(self) -> None:
-        """Whole-file atomic rewrite. Failure here is never allowed to reach the run."""
+        """Atomic whole-file rewrite. Errors only warn."""
         with self._lock:
             snapshot = list(self._samples)
         if not snapshot:
@@ -334,8 +295,7 @@ class SystemSampler:
 
     @staticmethod
     def _warn(message: str) -> None:
-        # Warnings raise during interpreter shutdown once the warnings machinery has been
-        # torn down, and this class is stopped from an atexit hook.
+        # warnings.warn can raise during shutdown, and this runs from atexit.
         try:
             warnings.warn(message, stacklevel=3)
         except Exception:  # pragma: no cover - shutdown-only path

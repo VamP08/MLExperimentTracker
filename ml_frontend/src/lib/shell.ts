@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * Whether the navigation drawer is open. Only narrow screens have a drawer: on a wide one the
- * sidebar is always there and this value is ignored by the stylesheet.
- */
+/** Whether the nav drawer is open. Only matters on narrow screens. */
 let open = false;
 const listeners = new Set<() => void>();
 

@@ -1,12 +1,8 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The colour theme, as one external store read by every control that can change it.
- *
- * `index.html` applies the saved theme before the first paint, so this module only has to
- * keep the attribute, the storage key and the subscribers in step. Storage access is wrapped
- * because it throws in private-mode browsers and on a full quota; a theme that forgets itself
- * on reload is a far smaller failure than a toggle that cannot render.
+ * Colour theme as a small external store. index.html applies the saved theme before first
+ * paint. Storage access is wrapped because it throws in private mode.
  */
 export type Theme = "light" | "dark";
 

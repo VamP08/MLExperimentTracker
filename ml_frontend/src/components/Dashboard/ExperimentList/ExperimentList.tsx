@@ -8,7 +8,7 @@ interface ExperimentListProps {
   colorIndex: Map<string, number>;
 }
 
-/** Every experiment with what it is and how it is going, in its chart colour. */
+/** All experiments with their status, each in its chart colour. */
 const ExperimentList = ({ experiments, colorIndex }: ExperimentListProps) => (
   <ul className="exp-list">
     {experiments.map((exp) => {

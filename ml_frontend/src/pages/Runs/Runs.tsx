@@ -73,8 +73,7 @@ const Runs = ({ runId }: RunsProps) => {
     (async () => {
       try {
         const res = runId ? await apiFetch(`/api/run/${runId}`) : await apiFetch("/api/run");
-        // A 404 on the unparameterised route means the storage tree holds no runs yet —
-        // an empty archive, not a failure worth an error message.
+        // 404 on the parameterless route means no runs yet, not an error.
         if (res.status === 404) {
           if (!cancelled) setRun(null);
           return;
@@ -134,15 +133,13 @@ const Runs = ({ runId }: RunsProps) => {
     };
   }, [runId]);
 
-  // Recorded from the loaded run rather than from the click that started the navigation, so a
-  // run that 404s leaves the sidebar pointing at the last one that really rendered.
+  // Record from the loaded run, not the click, so a 404 doesn't change the sidebar link.
   useRememberVisited("run", run?._id);
   useRememberVisited("experiment", run?.experimentId);
 
   const openTab = useCallback((tab: TabType) => {
     setActiveTab(tab);
-    // Coming from further down the page, bring the section's top back under the pinned bars
-    // rather than leaving the reader mid-way through a different section. From the top, stay.
+    // If scrolled down, bring the section top back under the pinned bars.
     requestAnimationFrame(() => {
       const panel = document.getElementById("run-panel");
       if (panel && panel.getBoundingClientRect().top < 112) panel.scrollIntoView({ block: "start" });
@@ -179,9 +176,8 @@ const Runs = ({ runId }: RunsProps) => {
     ...(experimentLabel
       ? [{ label: experimentLabel, to: run?.experimentId ? `/experiment/${encodeURIComponent(run.experimentId)}` : undefined }]
       : []),
-    // The run's short name from metadata.json (what the sidebar lists), not its description,
-    // which is the page title already. The run payload does not carry it; the shared
-    // dashboard payload does, so this costs no request.
+    // Short run name from metadata.json, as the sidebar shows it. The run payload doesn't have
+    // it but the shared dashboard payload does.
     ...(run
       ? [{ label: archive?.flatMap((e) => e.runs).find((r) => r._id === run._id)?.name || run._id }]
       : [{ label: runId ?? "Runs" }]),

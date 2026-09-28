@@ -79,9 +79,8 @@ function display(check: VerifyCheck): string {
 }
 
 /**
- * Expected → found for a drifted check, shortened only as far as the two still differ. Two
- * hashes can share their first seven characters, and "3c1a61d → 3c1a61d" would tell the reader
- * nothing changed; when even the full values do not fit, the check's own explanation does.
+ * Expected -> found for a drifted check, shortened only as far as the values still differ
+ * (two hashes can share a 7-char prefix). Falls back to the check's detail if they don't fit.
  */
 function driftText(check: VerifyCheck) {
   const was = display({ ...check, actual: check.expected });
@@ -105,9 +104,8 @@ function driftText(check: VerifyCheck) {
       </>
     );
   }
-  // The two recorded values match (e.g. the patch file is intact) and the drift is in the tree
-  // itself. The verifier's detail ends with the plain answer after its last colon — "the
-  // uncommitted work has changed" — which fits the row; the full sentence is the row tooltip.
+  // Recorded values match but the tree itself drifted. The detail's text after the last colon
+  // is short enough for the row; the full sentence goes in the tooltip.
   const plain = check.detail.includes(": ") ? check.detail.slice(check.detail.lastIndexOf(": ") + 2) : check.detail;
   return <span className="rc-prose">{plain.charAt(0).toUpperCase() + plain.slice(1)}</span>;
 }
@@ -128,12 +126,8 @@ const StatusIcon = ({ status }: { status: CheckStatus }) =>
   );
 
 /**
- * The first fact about a run: does the world it recorded still hold?
- *
- * One summary row by default — verdict, tally and the command that re-runs the check — so the
- * run's metrics stay in the first screen. The per-check breakdown is one click away, and it
- * opens on its own whenever the answer is anything but reproducible: a problem is never
- * hidden behind a disclosure.
+ * Does the recorded environment still hold? One summary row by default; the per-check
+ * breakdown opens automatically when the result isn't reproducible.
  */
 const ReproSummary = ({ runId, refreshKey, onOpenProvenance, onReport }: ReproSummaryProps) => {
   const [report, setReport] = useState<VerifyReport | null>(null);

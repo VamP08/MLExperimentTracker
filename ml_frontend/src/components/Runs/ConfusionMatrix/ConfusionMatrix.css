@@ -30,10 +30,8 @@
   padding-right: 12px;
 }
 
-/*
- * Single-hue scale from the panel ground to the accent. The top of the scale stops short of
- * the full accent so the numbers, always drawn in body ink, keep at least 4.5:1 contrast.
- */
+/* Single-hue scale from panel to accent. Stops short of the full accent so the numbers
+   keep 4.5:1 contrast. */
 .cm-cell {
   min-width: 64px;
   height: 48px;

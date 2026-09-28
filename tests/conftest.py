@@ -1,8 +1,4 @@
-"""Put ``src/`` on the path so the suite runs against the working tree.
-
-Deliberately not dependent on an editable install: the tests are the thing that proves
-the package is importable at all, so they must not require it to be installed first.
-"""
+"""Put ``src/`` on the path so the tests run against the working tree without an install."""
 
 from __future__ import annotations
 

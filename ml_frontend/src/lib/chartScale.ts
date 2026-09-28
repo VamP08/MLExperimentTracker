@@ -1,7 +1,4 @@
-/**
- * Number formatting and axis scaling shared by every chart, so a tick reads the same on the
- * overview's small multiples and on the Metrics tab's large chart.
- */
+/** Number formatting and axis scaling shared by all charts. */
 
 export function fmt(value: number): string {
   if (!Number.isFinite(value)) return "—";
@@ -41,6 +38,6 @@ export function tickLabel(value: number, step: number): string {
   return value.toFixed(decimals);
 }
 
-/** The five spectral series colours, the only multicolour in the product. */
+/** The five series colours. */
 export const SERIES = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"];
 export const seriesColor = (index: number): string => SERIES[index % SERIES.length];

@@ -64,8 +64,6 @@ const Artifacts: React.FC<Props> = ({ runId }) => {
           <h2 id="artifacts-title">Artifacts</h2>
           {!loading && !error && <span className="sub num">{artifacts.length}</span>}
           <span className="spacer" />
-          {/* The format records no path or URL for an artifact, so there is nothing to
-              download; saying so here saves hunting for a control that does not exist. */}
           <span className="sub">Listed from the run record. Artifacts have no stored path, so they cannot be downloaded.</span>
         </div>
         {loading ? (

@@ -1,31 +1,8 @@
-"""Capture of a training run's output into ``logs.jsonl``.
+"""Capture a run's stdout/stderr and :mod:`logging` output into ``logs.jsonl``.
 
-The format had no log destination at all until now (DATA-CONTRACT §7), which made the one
-question a user asks of a failed run — *what did it print before it died?* — unanswerable
-by the product that recorded it. This module is the writer half of closing that: a size-
-bounded record writer, a tee that wraps ``sys.stdout``/``sys.stderr`` without taking them
-away from the terminal, a :mod:`logging` handler, and one installer that arms all three
-reversibly.
-
-Three rules shape every line below, and each one is a way this module could ruin the run it
-is attached to rather than merely fail to record it.
-
-**It must still print.** A tracker that swallows a user's terminal output has broken their
-program to write a file they cannot see yet. Every teed write goes to the original stream
-first and is captured second, so the worst a capture failure can cost is the record.
-
-**It must never raise.** ``print()`` is not a call anyone expects to fail, and a tracker
-that turns it into one is a tracker that ends training runs. Every capture path here
-swallows, and swallows silently: reporting a logging failure through :mod:`logging` or
-``stderr`` while sitting inside the very handler and stream that failed is how a tracker
-recurses into a stack overflow.
-
-**It must be bounded.** A training loop printing one line per batch writes gigabytes over a
-weekend, into a directory the user believes holds metadata. The budget is enforced with a
-final record that says capture stopped and why — a log that silently ends part-way through
-is worse than no log, because the reader believes it is looking at the end of the run.
-
-Standard library only, like the rest of the SDK half.
+Output still reaches the terminal first. Capture never raises (failures are swallowed
+silently to avoid recursing through the tee), and a size budget ends the log with a
+record saying capture stopped. Stdlib only.
 """
 
 from __future__ import annotations
@@ -48,14 +25,10 @@ __all__ = [
     "install",
 ]
 
-#: 8 MiB. Enough for a long run's worth of honest progress lines — roughly eighty thousand
-#: — and small enough that a runaway loop costs a directory listing rather than a disk.
+# Roughly 80k progress lines.
 DEFAULT_MAX_BYTES: int = 8 * 1024 * 1024
 
-#: How much text may accumulate with no newline in it before it is recorded anyway. A
-#: program that writes a megabyte and never terminates the line is not going to, and
-#: holding it all in memory to preserve a line boundary that never arrives is the wrong
-#: trade.
+# Unterminated text longer than this is recorded anyway instead of buffered forever.
 _PENDING_LIMIT: int = 64 * 1024
 
 
@@ -65,20 +38,12 @@ _PENDING_LIMIT: int = 64 * 1024
 
 
 class LogWriter:
-    """Owns one run's log destination and its size budget.
+    """Writes one run's log records and enforces its size budget.
 
-    Records go through :meth:`Storage.append_log` rather than through a file handle this
-    object keeps open, which is a deliberate departure from the obvious design: every
-    filesystem access in this package goes through ``Storage``, and that rule is what makes
-    the containment check on user-supplied names impossible to forget. The cost is one
-    ``open``/``close`` per record, which is what ``metrics.jsonl`` already pays per step and
-    is dominated by the write itself.
-
-    ``start_time`` is the run's start as **epoch seconds** — the same number
-    ``absolute_timestamp`` is measured in. Elapsed time is then derived from the monotonic
-    clock and anchored to it, so a mid-run NTP step cannot make a log line appear before the
-    run started, and ``timestamp`` means exactly what it means in ``metrics.jsonl``:
-    seconds since the run began (DATA-CONTRACT §4.4).
+    Each record goes through ``Storage.append_log`` (one open per record) so all file
+    access stays behind Storage's containment check. ``start_time`` is epoch seconds;
+    elapsed time uses the monotonic clock so clock jumps don't reorder lines.
+    ``timestamp`` is seconds since run start, same as in metrics.jsonl.
     """
 
     def __init__(
@@ -97,15 +62,10 @@ class LogWriter:
 
         self._epoch_start = float(start_time)
         self._monotonic_base = time.monotonic()
-        # Normally zero: the writer is built a few statements after the run starts. It is
-        # not assumed to be, because `install()` may be called on a run that is already
-        # under way, and a negative elapsed is not a thing that can have happened.
+        # Usually ~0, but install() can be called on a run that's already going.
         self._elapsed_at_base = max(0.0, time.time() - self._epoch_start)
 
-        # An RLock rather than a Lock, and for the same reason `run.py` keeps its active-run
-        # registry lock-free: a signal handler runs on the main thread between bytecodes, so
-        # a Ctrl-C landing inside `write()` would deadlock a non-reentrant lock against the
-        # terminal-state write the handler exists to perform.
+        # RLock: a Ctrl-C handler can run on the main thread mid-write() and write again.
         self._lock = threading.RLock()
         self._written = 0
         self._records = 0
@@ -119,7 +79,7 @@ class LogWriter:
         )
 
     # ----------------------------------------------------------------------------------
-    # State, for callers that want to assert on it
+    # State
     # ----------------------------------------------------------------------------------
 
     @property
@@ -133,7 +93,7 @@ class LogWriter:
 
     @property
     def bytes_written(self) -> int:
-        """Bytes of JSONL this writer has appended, as counted against the budget."""
+        """Bytes appended so far, as counted against the budget."""
         return self._written
 
     @property
@@ -145,12 +105,10 @@ class LogWriter:
     # ----------------------------------------------------------------------------------
 
     def write(self, message: str, *, level: str = "info", source: str = "user") -> None:
-        """Append one record. Silent about every failure, by design.
+        """Append one record. Never raises.
 
-        ``level`` and ``source`` are normalised into the closed vocabularies in
-        ``contract`` rather than validated: this is called from inside ``print``, and
-        raising a ``ValueError`` at a user's logging call because a level was spelled
-        ``WARN`` would be the tracker breaking the program it is measuring.
+        ``level`` and ``source`` are normalised (not validated) via ``contract``, since
+        this runs inside ``print``.
         """
         if not isinstance(message, str):
             message = "" if message is None else str(message)
@@ -180,13 +138,7 @@ class LogWriter:
             pass
 
     def close(self) -> None:
-        """Stop accepting records. Idempotent, and never raises.
-
-        There is nothing to flush: each record is appended as it arrives, so a run killed
-        between two ``print`` calls keeps everything up to the first of them. The buffering
-        that does exist lives in :class:`StreamTee`, which flushes into this writer before
-        this is called.
-        """
+        """Stop accepting records. Idempotent. Nothing to flush; records are written immediately."""
         with self._lock:
             self._closed = True
 
@@ -198,12 +150,10 @@ class LogWriter:
         return self._elapsed_at_base + (time.monotonic() - self._monotonic_base)
 
     def _record_truncation(self) -> None:
-        """Append the one record that says capture stopped, and stop.
+        """Append a final notice that capture stopped, then stop.
 
-        Written past the budget on purpose — the budget bounds the output, and one more
-        line is the price of the file admitting what it is. ``source`` is ``user`` because
-        the vocabulary has no value for "the tracker itself", and widening a closed enum
-        that a reader maps exactly would cost more than the imprecision does.
+        The notice may exceed the budget. ``source`` is ``user`` because the vocabulary has
+        no value for the tracker itself.
         """
         self._truncated = True
         notice = {
@@ -225,13 +175,7 @@ class LogWriter:
 
 
 def _encoded_size(record: dict) -> int:
-    """Bytes this record will occupy, counted the way ``append_jsonl`` writes it.
-
-    Re-encoding here costs one ``json.dumps`` per record that the storage layer then
-    repeats. The alternative — estimating from the message length — drifts on every
-    non-ASCII character and on every escape, and a budget that is wrong in the direction of
-    "larger than you asked for" is not a budget.
-    """
+    """Encoded size of the record as ``append_jsonl`` writes it (exact, not estimated)."""
     try:
         return len(json.dumps(record, ensure_ascii=False, allow_nan=False).encode("utf-8")) + 1
     except (TypeError, ValueError):  # pragma: no cover - every field here is a str or float
@@ -244,25 +188,11 @@ def _encoded_size(record: dict) -> int:
 
 
 class StreamTee:
-    """A stand-in for ``sys.stdout`` / ``sys.stderr`` that writes to both.
+    """Wraps ``sys.stdout``/``sys.stderr``: writes to the real stream first, then records.
 
-    The original stream is written to **first**, so a user watching a terminal sees their
-    output at the moment they would have without the tracker, and a capture that fails
-    costs the record rather than the print.
-
-    Text is buffered until a newline, because a record is a line: ``print("a", end="")``
-    followed by ``print("b")`` is one line of output and must be one record, not two.
-    Carriage returns are treated the way a terminal treats them — everything before the
-    last ``\\r`` in a pending line has been overwritten on screen and is dropped — which is
-    what keeps a progress bar from writing a record per repaint, or from growing the buffer
-    without bound.
-
-    Attribute lookups that are not defined here fall through to the wrapped stream, so
-    ``isatty()``, ``encoding``, ``fileno()`` and ``buffer`` answer for the real stream and
-    a progress bar still believes it is talking to a terminal. Note the consequence of
-    ``fileno()`` being honest: anything writing to the file descriptor directly — a C
-    extension, a subprocess inheriting the handle — bypasses this object entirely and is
-    not captured. That is the same boundary every in-process tee has.
+    One record per line. Text before the last ``\\r`` is dropped, like a terminal would, so
+    progress bars don't produce a record per repaint. Other attributes delegate to the real
+    stream. Writes straight to the file descriptor (C extensions, subprocesses) aren't seen.
     """
 
     def __init__(
@@ -286,7 +216,7 @@ class StreamTee:
 
     @property
     def stream(self) -> Any:
-        """The object this tee replaced. Restoring it is the whole of uninstallation."""
+        """The stream this tee replaced."""
         return self._stream
 
     @property
@@ -305,34 +235,22 @@ class StreamTee:
             pass
         if isinstance(written, int):
             return written
-        # A stream that returns None from write() — several test doubles do — still has to
-        # give `print` a number back, and the number it expects is a character count.
+        # Some streams (test doubles) return None; print expects a char count.
         return len(data) if hasattr(data, "__len__") else 0
 
     def writelines(self, lines: Any) -> None:
-        """Implemented rather than delegated: a delegated ``writelines`` would reach the
-        terminal and never reach the log, which is the exact failure this class exists to
-        prevent."""
+        """Not delegated, or the lines would skip the log."""
         for line in lines:
             self.write(line)
 
     def flush(self) -> None:
-        """Passes through, and deliberately does **not** flush the pending line.
-
-        A progress bar flushes after every repaint. Treating a flush as a line boundary
-        would turn one line of output into a record per frame, which is both the largest
-        volume of junk this module could produce and a misreading of what a flush means: it
-        is about bytes reaching a device, not about a line being finished.
-        """
+        """Flush the real stream only. The pending line is kept, since progress bars flush a lot."""
         self._stream.flush()
 
     def flush_pending(self) -> None:
-        """Record the partial line held in the buffer, and keep capturing.
+        """Record the buffered partial line and keep capturing.
 
-        Called before anything else is written to the same run out of band — a traceback,
-        say — so that the file reads in the order the events happened. A ``print`` with no
-        newline followed by a crash is exactly that case, and it is the last thing many
-        failed runs printed.
+        Called before out-of-band writes like a traceback so the log stays in order.
         """
         with self._lock:
             pending, self._pending = self._pending, ""
@@ -340,11 +258,7 @@ class StreamTee:
             self._emit(pending)
 
     def detach(self) -> None:
-        """Stop capturing, recording whatever partial line is buffered. Idempotent.
-
-        This is what uninstallation calls. It does not touch the wrapped stream — closing a
-        user's ``stdout`` because a run ended would be a spectacular overreach.
-        """
+        """Stop capturing after recording any buffered line. Idempotent. Leaves the stream open."""
         with self._lock:
             if self._detached:
                 return
@@ -352,15 +266,12 @@ class StreamTee:
         self.flush_pending()
 
     def close(self) -> None:
-        """Detach, then close the wrapped stream — because code that closes ``sys.stdout``
-        means the real one, not this wrapper."""
+        """Detach, then close the wrapped stream."""
         self.detach()
         self._stream.close()
 
     def isatty(self) -> bool:
-        """Defined rather than delegated only so that a stream without the method — a
-        ``StringIO`` from a test harness, a null device stand-in — answers ``False``
-        instead of raising into the caller's terminal detection."""
+        """False, instead of raising, when the wrapped stream has no working isatty()."""
         isatty = getattr(self._stream, "isatty", None)
         if isatty is None:
             return False
@@ -394,9 +305,7 @@ class StreamTee:
             buffer = self._pending + text
             *complete, buffer = buffer.split("\n")
             lines.extend(complete)
-            # What is left has no newline in it. Collapse anything a carriage return
-            # overwrote, then bound what remains: a line that never ends must not become a
-            # memory leak that grows for the length of the run.
+            # Leftover has no newline. Drop text overwritten by \r, then cap its size.
             buffer = _after_last_return(buffer)
             if len(buffer) > _PENDING_LIMIT:
                 lines.append(buffer)
@@ -411,14 +320,7 @@ class StreamTee:
 
 
 def _as_text(data: Any, encoding: str | None) -> str:
-    """Whatever was written, as text.
-
-    Bytes reach a text stream more often than they should — a library writing through
-    ``sys.stdout`` instead of ``sys.stdout.buffer``, a payload that was never decoded — and
-    a tee that raised on them would convert somebody else's sloppiness into a crash inside
-    ``print``. Undecodable bytes become replacement characters, because a record with a
-    mangled character in it is worth more than no record.
-    """
+    """Whatever was written, as text. Bytes are decoded with replacement, never raising."""
     if isinstance(data, str):
         return data
     if isinstance(data, (bytes, bytearray, memoryview)):
@@ -427,11 +329,7 @@ def _as_text(data: Any, encoding: str | None) -> str:
 
 
 def _visible(line: str) -> str:
-    """A completed line as the terminal would have shown it.
-
-    A trailing ``\\r`` is the CRLF half and carries no meaning; any earlier one means the
-    text before it was overwritten in place.
-    """
+    """A finished line as a terminal would show it (trailing CR from CRLF ignored)."""
     if line.endswith("\r"):
         line = line[:-1]
     return _after_last_return(line)
@@ -450,10 +348,8 @@ def _after_last_return(text: str) -> str:
 class RunLogHandler(logging.Handler):
     """Routes :mod:`logging` records into the run.
 
-    Most training scripts report progress with ``logging.info`` rather than ``print``, and
-    a handler is the only way to see those: the logging machinery writes through its own
-    handlers' streams, which it captured at configuration time, so a tee installed
-    afterwards never sees them.
+    Needed because logging handlers keep the stream they were configured with, so the tee
+    doesn't see them.
     """
 
     def __init__(self, writer: LogWriter, level: int = logging.NOTSET) -> None:
@@ -461,11 +357,9 @@ class RunLogHandler(logging.Handler):
         self._writer = writer
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Formats and records. Swallows, and does not call :meth:`handleError`.
+        """Format and record. Errors are swallowed, not sent to handleError.
 
-        The default error handler prints to ``sys.stderr`` — which, with output capture on,
-        is a tee feeding this same writer. A failure that reported itself that way would be
-        a loop, and the first thing it would consume is the budget.
+        handleError prints to stderr, which may be our own tee, so it would loop.
         """
         try:
             self._writer.write(
@@ -478,13 +372,7 @@ class RunLogHandler(logging.Handler):
 
 
 def _level_name(levelno: int) -> str:
-    """Map a numeric level onto the five-word vocabulary, rounding **down**.
-
-    A custom level of 25 — the ``SUCCESS`` or ``NOTICE`` that half the logging recipes on
-    the internet install — is recorded as ``info`` rather than ``warning``: filing an
-    application's private level as more severe than it is puts noise in the bucket a user
-    searches when something has gone wrong.
-    """
+    """Map a numeric level to the five level names, rounding down (custom 25 -> info)."""
     if levelno >= logging.CRITICAL:
         return "critical"
     if levelno >= logging.ERROR:
@@ -502,7 +390,7 @@ def _level_name(levelno: int) -> str:
 
 
 class _Installation:
-    """What was changed, so that exactly that much can be changed back."""
+    """Tracks what install() changed so uninstall() can undo exactly that."""
 
     __slots__ = ("_done", "_handler", "_lock", "_restore_level", "_run_key", "_tees", "_writer")
 
@@ -530,14 +418,10 @@ class _Installation:
         self._restore_level = restore_level
 
     def uninstall(self) -> None:
-        """Undo the installation. Idempotent, ordered, and it may not raise.
+        """Undo the installation. Idempotent and never raises.
 
-        It is called from ``finish()``, from an excepthook, from a signal handler and from
-        ``atexit``, at least two of which fire for a single Ctrl-C. Every step is
-        independently guarded so that a failure in one still lets the others run — leaving
-        ``sys.stdout`` replaced after a run has finished is the worst outcome this module
-        has, because every later ``print`` in the process would then be writing into a
-        directory that belongs to a run that ended.
+        Called from finish(), the excepthook, signal handler and atexit, so it can run more
+        than once. Each step is guarded separately so sys.stdout always gets restored.
         """
         with self._lock:
             if self._done:
@@ -555,8 +439,7 @@ class _Installation:
             root = logging.getLogger()
             try:
                 root.removeHandler(self._handler)
-                # Only if nothing else has moved it since: restoring a level a later
-                # basicConfig() chose would silence the program on the way out.
+                # Only if nothing else changed it since (e.g. a later basicConfig()).
                 if self._restore_level is not None and root.level == logging.INFO:
                     root.setLevel(self._restore_level)
             except Exception:  # noqa: BLE001
@@ -569,13 +452,9 @@ class _Installation:
 
 
 def _restore_stream(tee: StreamTee) -> None:
-    """Put back the object the tee replaced, if the tee is still the one installed.
+    """Put back the original stream if the tee is still installed, then detach.
 
-    The identity check is the whole rule. If something else has since replaced
-    ``sys.stdout`` — a second tracker, a capture library, a notebook kernel — then this
-    tee is no longer what the process is printing through, and assigning our saved original
-    over the top would delete somebody else's wrapper and their output with it. Detaching
-    is still correct in that case: the tee stops recording into a finished run either way.
+    If something else has wrapped sys.stdout since, leave it alone rather than clobber it.
     """
     if getattr(sys, "stdout", None) is tee:
         sys.stdout = tee.stream
@@ -584,31 +463,19 @@ def _restore_stream(tee: StreamTee) -> None:
     tee.detach()
 
 
-#: One installation per live run, keyed by identity. Small, mutated under the installation
-#: lock, and emptied by ``uninstall``.
+# One installation per live run, keyed by id(run).
 _REGISTRY: dict[int, _Installation] = {}
 
 _INSTALL_LOCK = threading.RLock()
 
 
 def install(run: Any, *, capture_output: bool, capture_logging: bool) -> Callable[[], None]:
-    """Arm capture for ``run`` and return the callable that disarms it.
+    """Start capture for ``run`` and return a callable that stops it.
 
-    Idempotent per run: a second call for a run that is already installed returns the same
-    uninstall callable rather than wrapping the streams twice. That matters because a
-    double wrap is not merely wasteful — it records every line twice and, if the two
-    installations are unwound out of order, restores a stale ``sys.stdout``.
-
-    Two sequential runs in one process are the common case and are clean: the first
-    restores the exact objects it replaced before the second wraps them.
-
-    ``capture_logging`` also raises the root logger's level to ``INFO``, but **only when
-    logging is unconfigured** — no handlers and the default ``WARNING`` level. Without
-    that, the most common line in a training script, ``logging.info(...)``, is discarded by
-    the logging machinery before any handler sees it, and capture would silently record
-    nothing. When the program *has* configured logging it has said what it wants recorded,
-    and this leaves that alone; the level is restored on uninstall if nothing else has
-    changed it since.
+    Idempotent per run: a second call returns the same uninstall callable instead of
+    wrapping the streams twice. ``capture_logging`` also sets the root logger to INFO, but
+    only if logging is unconfigured (no handlers, level WARNING); otherwise logging.info()
+    would be dropped. The level is restored on uninstall.
     """
     key = id(run)
     with _INSTALL_LOCK:
@@ -623,8 +490,7 @@ def install(run: Any, *, capture_output: bool, capture_logging: bool) -> Callabl
             for name in ("stdout", "stderr"):
                 stream = getattr(sys, name, None)
                 if stream is None or not hasattr(stream, "write"):
-                    # `pythonw` and some embedded interpreters hand you None here. Nothing
-                    # is printing, so there is nothing to tee.
+                    # pythonw and some embedded interpreters have no stdout/stderr.
                     continue
                 level = "info" if name == "stdout" else "warning"
                 tee = StreamTee(stream, writer, source=name, level=level)
@@ -646,12 +512,9 @@ def install(run: Any, *, capture_output: bool, capture_logging: bool) -> Callabl
 
 
 def flush_pending(run: Any) -> None:
-    """Record whatever partial line the run's teed streams are holding.
+    """Record any partial line the run's tees are holding.
 
-    A ``print`` without a newline is not a record yet, which is right while the program is
-    still writing the line and wrong the moment something else writes to the same file.
-    ``Run`` calls this before recording a traceback so that the last thing the program
-    printed appears before the thing that killed it, rather than after it.
+    ``Run`` calls this before writing a traceback so the last output lands before it.
     """
     installation = _REGISTRY.get(id(run))
     if installation is not None:
@@ -659,12 +522,7 @@ def flush_pending(run: Any) -> None:
 
 
 def _writer_for(run: Any) -> LogWriter:
-    """The run's writer, built here if the run has not built one.
-
-    ``Run`` constructs its own so that ``log_text()`` works with both capture flags off;
-    this branch exists for a caller that installs capture on a run object directly, which
-    is what a test does and what a future ``attach to a running job`` would do.
-    """
+    """The run's writer, created here if the run doesn't have one (e.g. in tests)."""
     writer = getattr(run, "_log_writer", None)
     if isinstance(writer, LogWriter):
         return writer

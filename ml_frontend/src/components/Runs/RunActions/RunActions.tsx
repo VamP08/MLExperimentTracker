@@ -12,10 +12,8 @@ interface RunActionsProps {
 }
 
 /**
- * The run's page-level actions: re-run verification, and the three exports.
- *
- * The log and patch downloads are attachments streamed from disk, so the static demo — which
- * has no disk — disables them and says why, instead of offering a control that fails.
+ * Run actions: re-run verification and the three exports. Log and patch downloads stream
+ * from disk, so the static demo disables them.
  */
 const RunActions = ({ runId, canVerify, hasPatch, onVerify }: RunActionsProps) => {
   const [open, setOpen] = useState(false);

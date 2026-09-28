@@ -29,7 +29,7 @@ interface Props {
   runId: string;
 }
 
-/** Fields the sampler writes, in the order a reader scans them. Unknown fields follow, by name. */
+/** Known fields in display order; unknown fields follow by name. */
 const FIELDS: Record<string, { label: string; unit: Row["unit"] }> = {
   cpu_percent: { label: "CPU", unit: "%" },
   memory_percent: { label: "Memory", unit: "%" },
@@ -55,11 +55,7 @@ function show(value: number | undefined, unit: Row["unit"]): string {
   return `${value.toFixed(1)}${unit}`;
 }
 
-/**
- * Host resources sampled while the run trained. Every field the samples carry gets a
- * summary row and a chart, rather than only CPU, memory and GPU — a field the sampler
- * wrote is data the reader asked for.
- */
+/** Host resources sampled during the run. Each field in the samples gets a row and a chart. */
 const SystemMetrics = ({ runId }: Props) => {
   const [samples, setSamples] = useState<Sample[] | null>(null);
   const [summary, setSummary] = useState<SummaryShape | null>(null);

@@ -14,8 +14,7 @@
 }
 
 .main {
-  /* Positioned so absolutely placed descendants (screen-reader labels, menus) are contained and
-     clipped here instead of stretching the document past the viewport. */
+  /* Contain absolutely positioned children (sr-only labels, menus) so they can't stretch the page. */
   position: relative;
   min-width: 0;
   overflow-y: auto;

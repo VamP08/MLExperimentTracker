@@ -35,8 +35,7 @@ const Experiment = ({ experimentId }: ExperimentProps) => {
           ? await apiFetch(`/api/experiment/${experimentId}`)
           : await apiFetch("/api/experiment");
 
-        // 404 on the parameterless route means the storage root holds no
-        // experiments at all, which is a first-run state rather than a fault.
+        // 404 on the parameterless route means no experiments yet, not an error.
         if (res.status === 404) {
           setExperiment(null);
           return;
@@ -64,16 +63,13 @@ const Experiment = ({ experimentId }: ExperimentProps) => {
     fetchExperiment();
   }, [experimentId]);
 
-  // Recorded from the loaded experiment, not from the click that got here, so
-  // the sidebar cannot end up pointing at an id that does not resolve. This is
-  // also what makes `/experiment` (the parameterless route, which resolves to
-  // whichever experiment is newest) worth landing on: whatever it resolved to
-  // becomes the id the sidebar returns to next time.
+  // Record the id from the loaded experiment, not the click, so the sidebar never points
+  // at an id that doesn't resolve.
   useRememberVisited("experiment", experiment?._id);
 
   const openTab = useCallback((tab: TabType) => {
     setActiveTab(tab);
-    // Coming from further down the page, bring the section's top back under the pinned bars.
+    // If scrolled down, bring the section top back under the pinned bars.
     requestAnimationFrame(() => {
       const panel = document.getElementById("experiment-panel");
       if (panel && panel.getBoundingClientRect().top < 112) panel.scrollIntoView({ block: "start" });

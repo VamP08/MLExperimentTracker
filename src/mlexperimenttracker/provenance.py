@@ -1,34 +1,8 @@
-"""What the world looked like when the run started, recorded so it can be checked later.
+"""Snapshot of git state, uncommitted diff, packages, hardware, env and datasets at run start.
 
-A commit hash alone does not reproduce a run. The tree that trained the model is the
-commit *plus* whatever was uncommitted at the time, against the packages that happened to
-be importable, on the data that happened to be on disk. Recording only the hash records
-the part that is already safe and drops the parts that are not: the diff exists nowhere
-else, the dataset can be replaced in place without changing its name, and an environment
-is rebuilt from a lockfile that may itself have moved. This module captures all four so
-that a later ``verify`` can say which of them drifted, field by field, and a ``replay`` has
-something to restore.
-
-Three properties govern every line below.
-
-**It must never raise.** Provenance is attached to somebody's training job. A capture that
-throws turns a nicety into an outage, so every failure — no git binary, a directory that
-is not a repository, a driver that answers nonsense — degrades to ``available=False`` and a
-recorded ``reason``. :func:`capture` has no exception path at all; if it ever grows one,
-that is a defect of the same severity as corrupting a run.
-
-**It must not widen the dependency surface.** Git state comes from the ``git`` binary
-through :mod:`subprocess`, package versions from :mod:`importlib.metadata`, hashes from
-:mod:`hashlib`. All standard library. ``pynvml`` stays optional and lazily imported, as in
-``system.py``.
-
-**It must not exfiltrate anything.** Two rules, both load-bearing and both tested. The
-environment is captured from an explicit allowlist and never wholesale, because a process
-environment routinely holds API keys, and any allowlisted name that still looks like a
-credential has its value replaced with :data:`REDACTED`. And the uncommitted diff is
-capture of a developer's dirty tree, which is exactly where a hardcoded key or an edited
-``.env`` lives — so it is bounded, its truncation is recorded rather than silent, and the
-flag that controls it is explicit at the call site.
+Used later by ``verify`` (what drifted) and ``replay`` (what to restore). Capture never
+raises; failures become ``available=False`` plus a ``reason``. Stdlib only (pynvml optional).
+Env vars come from an allowlist, and the diff is size-capped since it may contain secrets.
 """
 
 from __future__ import annotations
@@ -67,22 +41,14 @@ __all__ = [
 # Limits and policy
 # --------------------------------------------------------------------------------------
 
-#: A megabyte of patch is already a diff nobody will read, and the manifest sits in a run
-#: directory the user did not choose to grow. Above this the patch is cut and the cut is
-#: recorded — a truncated patch is honest and useless, a silent one is dishonest and
-#: useless, and only the second kind produces a failed replay nobody can explain.
+# Patches above this are cut, and the cut is recorded in the manifest.
 DEFAULT_DIFF_LIMIT: int = 1024 * 1024
 
-#: Untracked files are capped because an enormous list is a missing ``.gitignore``, not
-#: information: it is ``node_modules`` or a checkpoint directory, and writing 40,000 paths
-#: into every run's manifest costs more than the fact is worth.
+# A huge untracked list usually means a missing .gitignore, so cap it.
 MAX_UNTRACKED: int = 200
 
-#: The only environment variables ever recorded. An allowlist rather than a denylist
-#: because the failure modes are not symmetric: a variable this list forgets costs a field
-#: in a diagnostic, and a variable a denylist forgets writes somebody's API key into a file
-#: they will commit. Every name here is one that changes how a training run behaves —
-#: device visibility, thread counts, seeding, the distributed topology, the interpreter.
+# Only these env vars are recorded. Allowlist, not denylist, so a new var can't leak a
+# secret. Each one affects how training behaves.
 ENV_ALLOWLIST: tuple[str, ...] = (
     "CUDA_VISIBLE_DEVICES",
     "OMP_NUM_THREADS",
@@ -101,15 +67,13 @@ ENV_ALLOWLIST: tuple[str, ...] = (
     "VIRTUAL_ENV",
 )
 
-#: Written in place of a value whose *name* looks like a credential. Nothing in
-#: :data:`ENV_ALLOWLIST` matches today, which is the point: this fires the day somebody
-#: appends a name to that tuple without thinking about what it holds.
+# Replaces values whose name looks like a credential. Nothing in the allowlist matches
+# today; it's a guard for future additions.
 REDACTED: str = "<redacted>"
 
 _SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL", re.IGNORECASE)
 
-#: Short, because these commands are local metadata reads and a hung one blocks a training
-#: script at its first line. The diff gets its own budget: it walks the whole worktree.
+# Metadata reads should be quick. The diff walks the whole worktree, so it gets longer.
 _GIT_TIMEOUT: float = 15.0
 _GIT_DIFF_TIMEOUT: float = 60.0
 
@@ -125,11 +89,8 @@ _T = TypeVar("_T")
 class GitState:
     """The ``git`` block of the manifest.
 
-    ``available`` is false whenever the repository could not be inspected at all, and
-    ``reason`` then says why. ``reason`` is *also* set on a partial success — a detached
-    HEAD with no commits, a diff that hit the cap, a ``git diff`` that exited non-zero —
-    because "we captured this much and here is what we missed" is the only report that
-    lets a later verification distinguish drift from a gap in the record.
+    ``available`` is false if the repo couldn't be inspected. ``reason`` explains that, and
+    is also set on partial captures (no commits yet, diff truncated, git diff failed).
     """
 
     available: bool = False
@@ -139,9 +100,7 @@ class GitState:
     remote: str | None = None
     dirty: bool = False
     untracked: tuple[str, ...] = ()
-    #: Set when the untracked list hit :data:`MAX_UNTRACKED`. Not in the original field
-    #: sketch; added because a capped list that does not say it is capped reads as a
-    #: complete list, and a reader would conclude exactly 200 files were untracked.
+    # True when the untracked list hit MAX_UNTRACKED.
     untracked_truncated: bool = False
     diff_file: str | None = None
     diff_sha256: str | None = None
@@ -166,12 +125,7 @@ class GitState:
 
     @classmethod
     def from_dict(cls, data: Any) -> GitState:
-        """Rebuild from whatever is actually on disk, which may be anything.
-
-        This parses a file a user can edit and an older writer may have produced, so every
-        field is coerced rather than trusted; a manifest that fails to load is a manifest
-        that cannot be verified against, which is worse than one loaded conservatively.
-        """
+        """Rebuild from disk. Fields are coerced, not trusted, since the file may be edited."""
         if not isinstance(data, dict):
             return cls()
         untracked = data.get("untracked")
@@ -193,13 +147,7 @@ class GitState:
 
 @dataclass(frozen=True)
 class Provenance:
-    """The whole ``provenance.json`` manifest.
-
-    Frozen because a manifest describes a moment: mutating one after capture produces a
-    record of a world that never existed. Every block is a plain ``dict`` rather than a
-    nested dataclass — they are passthrough JSON with no invariants of their own, and a
-    class per block would buy validation this module deliberately does not do.
-    """
+    """The whole ``provenance.json`` manifest. Blocks other than git are plain dicts."""
 
     captured_at: str
     git: GitState = field(default_factory=GitState)
@@ -226,7 +174,7 @@ class Provenance:
 
     @classmethod
     def from_dict(cls, data: dict) -> Provenance:
-        """Inverse of :meth:`to_dict`, tolerant of anything a reader might be handed."""
+        """Inverse of :meth:`to_dict`, tolerant of bad input."""
         if not isinstance(data, dict):
             data = {}
         datasets = data.get("datasets")
@@ -258,22 +206,11 @@ def capture(
     datasets: Sequence[dict] | None = None,
     command: dict | None = None,
 ) -> tuple[Provenance, bytes | None]:
-    """Capture the manifest and the raw patch bytes.
+    """Capture the manifest and the raw patch bytes. Never raises.
 
-    Returns ``(provenance, patch)``; ``patch`` is ``None`` when the tree is clean, when
-    ``capture_diff`` is false, or when the diff could not be taken. The patch is returned
-    rather than written because this module owns no filesystem policy — ``storage.py`` is
-    the only thing in the package that opens a file, and it writes the patch before the
-    manifest that names it.
-
-    ``datasets`` are entries produced by :func:`hash_path`; hashing is the caller's
-    decision because it is the one part of capture that can take minutes. ``command``
-    defaults to the interpreter's own ``argv`` and working directory, which is the command
-    a replay would have to re-run.
-
-    **This function does not raise.** Every block is captured independently and every
-    failure degrades to a recorded reason or an empty block, because the caller is a
-    training script that must not die at its first line over a missing driver.
+    Returns ``(provenance, patch)``. ``patch`` is None if the tree is clean, diff capture
+    is off, or the diff failed. The caller (storage) writes it. ``datasets`` are entries
+    from :func:`hash_path`. ``command`` defaults to the current argv and cwd.
     """
     try:
         state, patch = git_state(cwd, capture_diff=capture_diff, diff_limit=diff_limit)
@@ -303,22 +240,10 @@ def capture(
 
 
 def hash_path(path: str | Path, *, algorithm: str = "sha256", chunk: int = 1 << 20) -> dict:
-    """Content hash of a file, or of a directory tree, as a ``datasets`` entry.
+    """Content hash of a file or directory tree, as a ``datasets`` entry.
 
-    A directory is hashed deterministically: files are walked and sorted by their POSIX
-    relative path, and both the path and the bytes go into the digest. Feeding the path in
-    is what makes a rename change the hash — a dataset whose ``train`` and ``val`` splits
-    were swapped is a different dataset, and a bytes-only digest would call it identical.
-    Each file's length is fed in too, so that concatenation cannot be ambiguous: without
-    it, two files of ``ab`` + ``c`` and ``a`` + ``bc`` hash the same.
-
-    Symlinks are not followed, because a dataset directory containing a link to somewhere
-    outside it is a dataset whose hash would depend on a path this manifest does not
-    record — and following links invites a walk that never terminates.
-
-    A missing or unreadable path returns an entry carrying ``error`` instead of a digest.
-    Refusing to raise matters more here than anywhere else in the module: this is called
-    with a path a user typed, and a typo must cost the dataset field, not the run.
+    Directories hash each file's relative path, size and bytes in sorted order, so renames
+    change the hash. Symlinks are skipped. Bad paths give an entry with ``error``, no raise.
     """
     entry: dict[str, Any] = {
         "path": str(path),
@@ -352,9 +277,7 @@ def hash_path(path: str | Path, *, algorithm: str = "sha256", chunk: int = 1 << 
     hexdigest = digest.hexdigest()
     if algorithm == "sha256":
         entry["sha256"] = hexdigest
-    # Always present, so a reader does not have to know which algorithm was used to find
-    # the digest. The `sha256` key is emitted only when it is true — a blake2b hash filed
-    # under `sha256` is the kind of lie that survives until someone tries to verify it.
+    # `digest` is always set; `sha256` only when that's actually the algorithm.
     entry["digest"] = hexdigest
     entry["bytes"] = total_bytes
     entry["files"] = file_count
@@ -362,18 +285,10 @@ def hash_path(path: str | Path, *, algorithm: str = "sha256", chunk: int = 1 << 
 
 
 def collect_packages() -> dict[str, str]:
-    """Installed distributions and their versions, sorted by lowercased name.
+    """Installed distributions and versions, sorted by lowercased name.
 
-    ``importlib.metadata`` rather than ``pip freeze``: no subprocess, no pip, and it sees
-    the environment this interpreter actually imports from — which is the environment that
-    trained the model, even when ``pip`` on the PATH points somewhere else. It is not a
-    lockfile and is not claimed to be: it records resolved versions, not the constraints
-    that produced them, and it cannot see a package installed from a local path any
-    differently from one from an index.
-
-    Distributions are deduplicated by name with the first occurrence winning, matching
-    import resolution: when two ``sys.path`` entries provide the same package, the first
-    one is what gets imported.
+    Uses importlib.metadata so it sees this interpreter's env, not whatever pip is on PATH.
+    First occurrence of a name wins, matching import order. Not a lockfile.
     """
     packages: dict[str, str] = {}
     try:
@@ -397,12 +312,7 @@ def collect_packages() -> dict[str, str]:
 
 
 def collect_environment() -> dict[str, str]:
-    """Allowlisted environment variables, with credential-shaped names redacted.
-
-    Reads :data:`ENV_ALLOWLIST` at call time rather than closing over it, so a caller that
-    extends the tuple gets the redaction pass applied to the additions too — which is the
-    only case in which the redaction can ever fire.
-    """
+    """Allowlisted environment variables, with credential-shaped names redacted."""
     captured: dict[str, str] = {}
     for name in ENV_ALLOWLIST:
         value = os.environ.get(name)
@@ -413,14 +323,7 @@ def collect_environment() -> dict[str, str]:
 
 
 def collect_hardware() -> dict:
-    """CPU count always; GPU details when NVML happens to be there.
-
-    ``cpu_count`` is what the OS reports, not what the process may use — a cgroup quota or
-    an affinity mask can make the usable count smaller, and the difference is exactly the
-    kind of thing that makes a replay slower than the original without changing a number
-    anyone records. It is reported unadjusted because the alternative is a platform-
-    specific guess presented as a fact.
-    """
+    """CPU count (as the OS reports it, ignoring cgroups/affinity), plus GPUs if NVML is there."""
     hardware: dict[str, Any] = {"cpu_count": None, "gpus": []}
     try:
         hardware["cpu_count"] = os.cpu_count()
@@ -436,13 +339,9 @@ def git_state(
     capture_diff: bool = True,
     diff_limit: int = DEFAULT_DIFF_LIMIT,
 ) -> tuple[GitState, bytes | None]:
-    """Inspect the repository at ``cwd``, returning the state and the patch bytes.
+    """Inspect the repo at ``cwd``, returning the state and the patch bytes.
 
-    Every git invocation is a list — never a shell string — with an explicit ``cwd``, a
-    timeout, and ``check=False``. A shell would make a repository path with a space or a
-    quote in it into a command, the explicit ``cwd`` is what stops the answer depending on
-    where the training script happened to be started from, and a timeout is what stops a
-    filesystem that has gone away from hanging the run forever.
+    git is run as an arg list (no shell) with an explicit cwd and a timeout.
     """
     try:
         return _git_state(cwd, capture_diff=capture_diff, diff_limit=diff_limit)
@@ -458,7 +357,7 @@ def git_state(
 
 
 class _GitUnavailable(Exception):
-    """Git could not be consulted at all. Carries the reason recorded in the manifest."""
+    """Git could not be run at all. The message becomes the manifest's reason."""
 
 
 def _git_state(
@@ -487,8 +386,7 @@ def _git_state(
 
     branch = _first_line(_ok(_run_git(["rev-parse", "--abbrev-ref", "HEAD"], directory)))
     if branch == "HEAD":
-        # Detached HEAD. Null rather than the literal "HEAD" the plumbing prints, because
-        # a reader comparing branches would otherwise see two unrelated runs "on HEAD".
+        # Detached HEAD. Record None, not "HEAD", so unrelated runs don't look like one branch.
         branch = None
 
     remote = _first_line(_ok(_run_git(["config", "--get", "remote.origin.url"], directory)))
@@ -498,8 +396,7 @@ def _git_state(
         notes.append("git status failed: " + (_first_line(status.stderr) or "unknown error"))
         dirty = False
     else:
-        # Untracked files count as dirty: a tree with a new, unignored file is not the
-        # tree the commit describes, and the diff below will not show it.
+        # Untracked files count as dirty even though the diff won't include them.
         dirty = bool(status.stdout.strip())
 
     untracked, untracked_truncated = _untracked(directory, notes)
@@ -549,11 +446,7 @@ def _git_state(
 
 
 def _untracked(directory: Path, notes: list[str]) -> tuple[tuple[str, ...], bool]:
-    """Untracked, unignored paths — NUL-separated so a newline in a filename cannot lie.
-
-    ``--exclude-standard`` applies the same ignore rules the user already curated. Without
-    it every build output and virtualenv in the tree lands in the manifest.
-    """
+    """Untracked, non-ignored paths. NUL-separated so newlines in names are safe."""
     result = _run_git(["ls-files", "-z", "--others", "--exclude-standard"], directory)
     if result.returncode != 0:
         notes.append(
@@ -572,16 +465,10 @@ def _untracked(directory: Path, notes: list[str]) -> tuple[tuple[str, ...], bool
 def _diff(
     directory: Path, have_commit: bool, diff_limit: int
 ) -> tuple[bytes | None, int, bool, str | None]:
-    """``(patch, total_bytes, truncated, failure)``.
+    """Return ``(patch, total_bytes, truncated, failure)``.
 
-    ``git diff HEAD`` rather than a bare ``git diff``, so that staged and unstaged changes
-    land in one patch — a replay that restored only half of them would silently train
-    something else. Three flags matter and each closes a way the output stops being a
-    patch: ``--no-ext-diff`` refuses any external diff driver the user configured
-    (a configured ``difftool`` otherwise emits prose that ``git apply`` cannot read),
-    ``--no-textconv`` refuses the ``.gitattributes`` filters that turn a PDF into text for
-    human reading, and ``--binary`` emits the literal binary hunks that make a patch
-    touching a non-text file applicable rather than a stub saying the file differs.
+    Diffs against HEAD so staged and unstaged changes land in one patch. The flags keep
+    the output applicable: no external diff drivers, no textconv, real binary hunks.
     """
     args = ["diff", "--no-ext-diff", "--no-textconv", "--binary"]
     if have_commit:
@@ -596,13 +483,7 @@ def _diff(
 
 
 def _git_env() -> dict[str, str]:
-    """The caller's environment with three settings forced.
-
-    ``GIT_TERMINAL_PROMPT`` stops git asking for credentials on a terminal a training job
-    may not have. ``GIT_OPTIONAL_LOCKS`` stops a status refresh taking the index lock out
-    from under whatever else the developer has open. ``GIT_PAGER`` stops a configured
-    pager from being spawned into a pipe that will never be read.
-    """
+    """Current env with no credential prompts, no optional index locks, and no pager."""
     env = dict(os.environ)
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GIT_OPTIONAL_LOCKS"] = "0"
@@ -636,14 +517,9 @@ def _run_git(
 def _run_git_capped(args: list[str], cwd: Path, limit: int) -> tuple[bytes, int, int]:
     """Run git, keep at most ``limit`` bytes of stdout, and count all of them.
 
-    The output is streamed rather than buffered by :func:`subprocess.run` because the
-    thing being read is a diff, and a diff of a tree where somebody committed a dataset is
-    unbounded — buffering it to decide it is too large is the failure mode this cap exists
-    to prevent. Everything past the cap is read and discarded rather than left unread, so
-    the true size can be reported and git never blocks writing into a pipe nobody drains.
-
-    ``stderr`` goes to the void deliberately: reading two pipes from one thread deadlocks
-    the moment the unread one fills, and a status code is enough to know a diff failed.
+    Streamed so a huge diff is never fully buffered. Output past the cap is drained so the
+    true size is known and git doesn't block. stderr is discarded to avoid a two-pipe
+    deadlock; the exit code is enough.
     """
     keep = max(0, int(limit))
     try:
@@ -716,12 +592,7 @@ def _hash_file(path: Path, digest: Any, chunk: int) -> int:
 
 
 def _hash_directory(root: Path, digest: Any, chunk: int) -> tuple[int, int]:
-    """Sort by POSIX relative path so that the digest does not depend on the filesystem.
-
-    Directory order is arbitrary and differs between ext4, NTFS and APFS, so a walk in
-    natural order would hash the same tree to different values on two machines — which is
-    precisely the comparison this hash exists to support.
-    """
+    """Sorted by POSIX relative path so the digest is the same on every filesystem."""
     relatives: list[str] = []
     for parent, dirnames, filenames in os.walk(root, followlinks=False):
         dirnames.sort()
@@ -767,13 +638,10 @@ def _collect_platform() -> dict[str, Any]:
 
 
 def _collect_command() -> dict[str, Any]:
-    """``argv`` and the working directory — the command a replay has to re-run.
+    """``argv`` and cwd, for replay.
 
-    ``argv`` can contain a secret passed as ``--api-key``; it is recorded anyway, because
-    a command line with the flags removed is not the command that ran and would make a
-    replay wrong rather than incomplete. The manifest is written into the user's own run
-    directory, and the ``.gitignore`` guidance in the data contract is where that is
-    handled.
+    argv may hold secrets (e.g. ``--api-key``) but is kept as-is; stripping flags would make
+    the replay wrong. Keep run directories out of version control.
     """
     try:
         cwd = os.getcwd()
@@ -783,12 +651,7 @@ def _collect_command() -> dict[str, Any]:
 
 
 def _collect_gpus() -> list[dict[str, Any]]:
-    """Per-device details through NVML, or an empty list.
-
-    Lazily imported and wrapped exactly as in ``system.py``: a machine without NVIDIA
-    tooling is the common case, not an error, and a driver that answers an unexpected
-    struct must cost this field and nothing else.
-    """
+    """Per-device details through NVML, or an empty list. Same lazy import as system.py."""
     try:
         import pynvml  # noqa: PLC0415 - optional extra, deliberately lazy
     except Exception:
@@ -851,7 +714,7 @@ def _nvml_text(value: Any) -> str | None:
 
 
 def _safe(fn: Callable[[], _T], fallback: _T) -> _T:
-    """Call ``fn``, or return ``fallback``. The reason capture cannot fail a run."""
+    """Call ``fn``, or return ``fallback`` if it raises."""
     try:
         return fn()
     except Exception:
@@ -859,11 +722,7 @@ def _safe(fn: Callable[[], _T], fallback: _T) -> _T:
 
 
 def _now_iso() -> str:
-    """Local time with an explicit offset, matching every other timestamp in the format.
-
-    An offset is not decoration here: a manifest is compared against a later capture on
-    another machine, and a bare local timestamp is read as the reader's own zone.
-    """
+    """Local time with an explicit UTC offset, like the other timestamps in the format."""
     return datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 

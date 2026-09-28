@@ -1,15 +1,7 @@
-"""Provenance capture, tested against real repositories rather than mocks.
+"""Provenance capture tests, run against real throwaway git repos instead of mocks.
 
-Every git assertion below runs against a throwaway repository built with the real ``git``
-binary in ``tmp_path``. Mocking ``subprocess`` here would test that this module calls the
-commands the author expected to be correct, which is the half that has never been wrong;
-what breaks is the other half — a plumbing command that prints ``HEAD`` where a branch was
-expected, a patch that does not apply because an external diff driver rewrote it, a
-``ls-files`` list that quotes a non-ASCII path. Only a real repository shows those.
-
-The patch test therefore does not stop at "a patch was produced": it clones the repository,
-applies the captured bytes with ``git apply``, and compares the files. That is the property
-the milestone actually promises, and it is the one a mock cannot express.
+Mocks can't catch real git quirks (detached HEAD output, diff drivers, quoted paths). The
+patch test clones the repo and applies the captured patch to check it restores the tree.
 """
 
 from __future__ import annotations
@@ -43,7 +35,7 @@ BINARY_BLOB = bytes(range(256)) * 8
 
 
 def _git(cwd: Path, *args: str) -> str:
-    """Run git for test setup. Unlike the module under test, this one is allowed to fail."""
+    """Run git for test setup; raises on failure."""
     result = subprocess.run(
         ["git", *args],
         cwd=str(cwd),
@@ -63,9 +55,7 @@ def _write(path: Path, text: str) -> None:
 
 
 def _configure(repo: Path) -> None:
-    # Local config only, which overrides whatever the developer's global config says.
-    # ``core.autocrlf`` matters on Windows: with the global default of ``true`` the patch
-    # and the worktree disagree about line endings and ``git apply`` refuses.
+    # Local config overrides the developer's. autocrlf=true on Windows breaks git apply.
     _git(repo, "config", "user.email", "tests@example.invalid")
     _git(repo, "config", "user.name", "Test Runner")
     _git(repo, "config", "commit.gpgsign", "false")
@@ -111,13 +101,12 @@ def test_a_clean_repository_reports_commit_branch_and_no_patch(repo: Path) -> No
 
 
 def test_the_captured_patch_applies_to_a_clean_clone(repo: Path, tmp_path: Path) -> None:
-    """The whole milestone in one test: the patch must restore the tree, not describe it."""
+    """Applying the patch to a clean clone reproduces the dirty tree."""
     dirty_text = "def main():\n    # uncommitted work\n    return 42\n"
     _write(repo / "train.py", dirty_text)
     dirty_blob = BINARY_BLOB[::-1]
     (repo / "model.bin").write_bytes(dirty_blob)
-    # Staged as well as unstaged, because `git diff` alone would silently drop this hunk
-    # and a replay would train something the developer never ran.
+    # Staged changes too; plain `git diff` would miss them.
     _write(repo / "staged.py", "STAGED = True\n")
     _git(repo, "add", "staged.py")
 
@@ -131,12 +120,8 @@ def test_the_captured_patch_applies_to_a_clean_clone(repo: Path, tmp_path: Path)
     assert state.diff_truncated is False
 
     clone = tmp_path / "clone"
-    # `-c core.autocrlf=false` on the clone itself, not afterwards: Git for Windows ships
-    # `core.autocrlf=true` in its *system* config, so the checkout that happens during the
-    # clone would write CRLF into files whose committed content is LF, and the patch —
-    # which is repository content, correctly — would then not apply. That is a real caveat
-    # for replay on Windows rather than a defect in the capture, and it belongs on the
-    # record here where it is reproducible.
+    # autocrlf must be off during the clone itself: Git for Windows enables it system-wide,
+    # the checkout would write CRLF, and the LF patch would not apply.
     subprocess.run(
         ["git", "-c", "core.autocrlf=false", "clone", str(repo), str(clone)],
         check=True,
@@ -164,8 +149,7 @@ def test_untracked_files_are_listed_and_ignored_ones_are_not(repo: Path) -> None
     assert state.available is True
     assert set(state.untracked) == {"notes.txt", "nested/extra.py"}
     assert state.untracked_truncated is False
-    # An untracked file is a tree that the commit does not describe, and `git diff` will
-    # not show it — so dirty must be true even though there is no patch.
+    # Untracked files make the tree dirty even with no patch.
     assert state.dirty is True
     assert patch is None
     assert state.diff_file is None
@@ -193,8 +177,7 @@ def test_a_detached_head_has_a_commit_and_no_branch(repo: Path) -> None:
 
     assert state.available is True
     assert state.commit == first
-    # Not the literal "HEAD" the plumbing prints: two unrelated runs would both claim to
-    # be "on HEAD" and a comparison would report no drift.
+    # None, not "HEAD", or unrelated detached runs would look like the same branch.
     assert state.branch is None
 
 
@@ -256,8 +239,7 @@ def test_the_diff_cap_is_recorded_rather_than_applied_silently(repo: Path) -> No
     assert state.diff_bytes == 1024
     assert state.diff_truncated is True
     assert state.diff_sha256 == hashlib.sha256(patch).hexdigest()
-    # The reason has to carry the true size, otherwise the manifest says a 1 KiB patch was
-    # the whole change and a failed replay has no explanation.
+    # The reason must mention the truncation so a failed replay is explainable.
     assert state.reason is not None and "truncated" in state.reason
     assert "1024" in state.reason
 
@@ -298,7 +280,7 @@ def test_the_environment_allowlist_excludes_a_planted_secret(
     assert "AWS_SECRET_ACCESS_KEY" not in captured
     assert "HUGGINGFACE_HUB_TOKEN" not in captured
     assert "DATABASE_URL" not in captured
-    # Stronger than a key check: the value must not appear anywhere in the block.
+    # The value must not appear anywhere either.
     assert "not-a-real-secret-9f3a" not in json.dumps(captured)
     assert "hf_notarealtoken" not in json.dumps(captured)
 
@@ -309,8 +291,7 @@ def test_the_environment_allowlist_excludes_a_planted_secret(
 def test_redaction_fires_for_a_credential_shaped_allowlisted_name(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The belt to the allowlist's braces: this is what happens the day the allowlist is
-    extended by someone who did not think about what the variable holds."""
+    """Backstop in case a credential-like name is ever added to the allowlist."""
     monkeypatch.setattr(provenance, "ENV_ALLOWLIST", (*ENV_ALLOWLIST, name))
     monkeypatch.setenv(name, "value-that-must-not-be-recorded")
 
@@ -370,8 +351,7 @@ def test_a_directory_hash_does_not_depend_on_creation_order(tmp_path: Path) -> N
 
 
 def test_renaming_a_file_changes_the_directory_hash(tmp_path: Path) -> None:
-    """A train/val split that was swapped is a different dataset, and a bytes-only digest
-    would call it identical."""
+    """File names are part of the digest, so a swapped train/val split is detected."""
     root = tmp_path / "data"
     _write(root / "train.csv", "same bytes\n")
     _write(root / "val.csv", "other bytes\n")
@@ -451,7 +431,7 @@ def test_capture_produces_every_block_of_the_manifest(repo: Path) -> None:
     assert manifest["command"]["argv"]
     assert manifest["command"]["cwd"]
     assert manifest["datasets"] == []
-    # It has to survive the storage layer's encoder, which rejects NaN and non-JSON types.
+    # Storage's encoder rejects NaN and non-JSON types.
     assert json.loads(json.dumps(manifest, allow_nan=False)) == manifest
 
 
@@ -476,7 +456,7 @@ def test_capture_never_raises_for_a_nonexistent_working_directory(tmp_path: Path
     assert patch is None
     assert manifest.git.available is False
     assert manifest.git.reason
-    # The rest of the capture is independent of git and must survive it failing.
+    # Non-git fields still get captured.
     assert manifest.python["version"]
     assert manifest.packages
 
@@ -504,8 +484,7 @@ def test_the_manifest_round_trips_through_a_dict(repo: Path) -> None:
 
 
 def test_from_dict_tolerates_a_manifest_that_is_wrong(tmp_path: Path) -> None:
-    """It parses a file a user can edit. A manifest that fails to load cannot be verified
-    against, which is strictly worse than one loaded conservatively."""
+    """Users can edit the file, so bad fields fall back to defaults instead of raising."""
     restored = Provenance.from_dict({"git": "not an object", "packages": 7, "datasets": None})
 
     assert restored.git == GitState()
@@ -555,8 +534,7 @@ def test_the_manifest_and_patch_round_trip_through_storage(repo: Path, tmp_path:
 
 
 def test_a_patch_is_written_byte_for_byte(tmp_path: Path) -> None:
-    """Bytes, not text: a `--binary` patch decoded and re-encoded is a patch that no
-    longer applies, and CRLF translation on Windows would do it silently."""
+    """Written as bytes; text mode would mangle binary patches and CRLF on Windows."""
     storage = Storage(tmp_path / "root")
     storage.create_run("proj", "proj_run_0002", {"created_at": "2026-08-13T10:00:00+05:30"})
     payload = b"diff --git a/x b/x\r\nGIT binary patch\n\x00\x01\x02\xff\n"
@@ -619,9 +597,7 @@ def test_an_unaddressable_name_is_refused_by_every_provenance_method(
 
 
 def test_the_format_version_is_bumped_for_the_manifest() -> None:
-    # A floor rather than an equality: later additive bumps are the point of the minor
-    # half, and the manifest cannot un-land. Compared as integers because "1.10" sorts
-    # below "1.2" as a string.
+    # A floor so later minor bumps pass. Ints because "1.10" < "1.2" as strings.
     major, minor = (int(part) for part in contract.FORMAT_VERSION.split(".")[:2])
     assert (major, minor) >= (1, 1)
     assert contract.PROVENANCE_FILE == "provenance.json"
@@ -629,8 +605,7 @@ def test_the_format_version_is_bumped_for_the_manifest() -> None:
 
 
 def test_a_1_1_directory_still_reads_as_a_run(repo: Path, tmp_path: Path) -> None:
-    """The compatibility claim, exercised rather than asserted: the reader is the same
-    code path a 1.0 reader takes, and the two new files must be invisible to it."""
+    """The two provenance files don't change what the 1.0 read path returns."""
     storage = Storage(tmp_path / "root")
     storage.create_run(
         "proj",

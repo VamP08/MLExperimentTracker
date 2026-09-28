@@ -1,33 +1,14 @@
-"""Parity with the Express backend this server replaced.
+"""API payload parity with the old Express backend the React frontend was written against.
 
-The React frontend was written against an Express server, so its payloads are the
-requirement: a key renamed, a number turned into a string, or an object that gained a level
-of nesting breaks a page rather than a test. This file is what stops that happening silently.
+Expected values come from a fixed example run and were diffed against the Express server
+(key order included) before it was removed. Intentional differences are asserted as such:
 
-The payloads are pinned against the worked example in the data contract, section 5 — a
-fixture built for exactly this purpose, whose expected output that document states field by
-field. Those values were diffed route by route against the running Express server, with key
-order compared too, and matched with zero structural divergence. The Express server has
-since been retired from the repository, so these recorded values are now the reference:
-asserting on them is asserting on the reader's behaviour without needing the reader present.
-
-Divergences that are deliberate are asserted *as* divergences, not tolerated. Each one is
-a decision that should have to be re-taken to be undone:
-
-1. `undefined` becomes `null`. `JSON.stringify` drops a key whose value is `undefined`, so
-   Express returns 20 keys for a bare run and 25 for a complete one. A fixed key set is
-   easier to type against and both are falsy in React.
-2. The CSV is RFC 4180 quoted. Express joined raw values with commas, so one value
-   containing a comma shifted every column to its right in a file people open in a
-   spreadsheet.
-3. Malformed input degrades instead of 500ing the page. A non-array `tags` or a run with
-   no `created_at` took the whole dashboard down for every project.
-4. A non-finite metric costs its own value, not its entire row.
-5. A stored experiment description is read back. Express wrote `project_metadata.json` on
-   `PATCH /api/experiment/{id}` and opened it nowhere, so the edit reverted on the next
-   load (GAPS M3); here the experiment read paths prefer it over the description derived
-   from the first run's notes. No producer writes that file, so it exists only in a tree
-   where somebody has already edited a description.
+1. Missing fields are ``null`` instead of dropped, so the Run object has a fixed 25 keys.
+2. CSV export is RFC 4180 quoted.
+3. Malformed input (non-array tags, no created_at) no longer 500s the dashboard.
+4. A non-finite metric nulls its own value, not the whole row.
+5. A stored experiment description (project_metadata.json) is read back instead of
+   reverting to the first run's notes on reload.
 """
 
 from __future__ import annotations
@@ -46,7 +27,7 @@ RUN = "churn-mlp_20260812T091403Z_7f3a"
 
 
 # --------------------------------------------------------------------------------------
-# The DATA-CONTRACT section 5 worked example, verbatim
+# The worked example run
 # --------------------------------------------------------------------------------------
 
 METADATA = {
@@ -113,10 +94,7 @@ CHECKPOINTS = {
     "epoch_03": {"checkpoint_name": "epoch_03", "created_at": "2026-08-12T09:17:46.210+05:30", "step": 1173},
 }
 
-#: The Run object Express emits for a run whose metadata carries every optional field, in
-#: the order `run.service.js:70-96` builds it. Order is asserted because the port was
-#: written by reading that literal, and a key appearing somewhere else means it was
-#: rebuilt from memory rather than from the source.
+# Run object keys in the order Express built them (run.service.js:70-96).
 RUN_KEYS = (
     "_id", "name", "experimentId", "experimentName", "status", "description", "tags",
     "duration", "durationFormatted", "createdAt", "startTime", "endTime", "state",
@@ -125,8 +103,7 @@ RUN_KEYS = (
     "summary",
 )
 
-#: The keys `JSON.stringify` drops from that object when the fields behind them are
-#: absent, leaving Express with 20. This port emits all 25 with `null` in the gaps.
+# Keys Express dropped when absent (leaving 20); we emit them as null.
 NULLABLE_RUN_KEYS = ("endTime", "state", "platform", "pythonVersion", "workingDirectory")
 
 
@@ -143,7 +120,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
 
 
 def build_worked_example(root: Path) -> None:
-    """Write the section 5 tree. Its expected output is stated in the contract."""
+    """Write the example run tree under ``root``."""
     run = root / PROJECT / RUN
     _write_json(run / "metadata.json", METADATA)
     _write_json(run / "config.json", CONFIG)
@@ -153,9 +130,7 @@ def build_worked_example(root: Path) -> None:
     _write_jsonl(run / "artifacts.jsonl", ARTIFACT_LINES)
     for name, body in CHECKPOINTS.items():
         _write_json(run / "checkpoints" / f"{name}.json", body)
-    # A loose file whose name matches no artifact record, which section 3.6 synthesizes a
-    # fourth, placeholder artifact for. Without it `artifactsCount` is 3 and the dedup
-    # rule goes untested.
+    # A loose file with no matching record gets a placeholder artifact; exercises the dedup.
     (run / "artifacts").mkdir(parents=True, exist_ok=True)
     (run / "artifacts" / "confusion_matrix.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
@@ -168,13 +143,12 @@ def root(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def client(root: Path) -> TestClient:
-    # An absent bundle: `/` must answer for the API, not for the UI, and whether a bundle
-    # has been built is not this file's business.
+    # No UI bundle, so results don't depend on whether one was built.
     return TestClient(create_app(Storage(root), static_dir=root / "no-bundle"))
 
 
 # --------------------------------------------------------------------------------------
-# GET /api/run/{id} — the payload the run detail page is built from
+# GET /api/run/{id}: the run detail page payload
 # --------------------------------------------------------------------------------------
 
 
@@ -185,7 +159,6 @@ def test_run_has_the_express_key_set_in_the_express_order(client: TestClient) ->
 
 
 def test_run_scalars_match_the_contract(client: TestClient) -> None:
-    """Every value here is stated in the section 5 verification table."""
     body = client.get(f"/api/run/{RUN}").json()
     assert body["_id"] == RUN
     assert body["status"] == "completed"
@@ -196,8 +169,7 @@ def test_run_scalars_match_the_contract(client: TestClient) -> None:
     assert body["endTime"] == SUMMARY["end_time"]
     assert body["tags"] == ["baseline", "churn", "mlp"]
     assert body["experimentId"] == body["experimentName"] == PROJECT
-    # `notes` is empty in both files, so the display name falls all the way through —
-    # and `metadata.name` is deliberately not consulted on this route.
+    # notes is empty, so the name falls back; this route ignores metadata.name.
     assert body["name"] == f"Run {RUN}"
     assert body["description"] == ""
 
@@ -205,7 +177,7 @@ def test_run_scalars_match_the_contract(client: TestClient) -> None:
 def test_duration_is_a_number_here_and_a_string_on_the_experiment_route(
     client: TestClient,
 ) -> None:
-    """One value, two types, two pages. Inherited, and load-bearing for both callers."""
+    """Inherited from Express; both pages depend on their type."""
     detail = client.get(f"/api/run/{RUN}").json()
     row = client.get(f"/api/experiment/{PROJECT}/runs").json()[0]
     assert isinstance(detail["duration"], float) and detail["duration"] == 231.4
@@ -224,7 +196,7 @@ def test_parameters_are_camel_cased_top_level_scalars(client: TestClient) -> Non
 
 
 def test_metrics_are_flattened_to_five_keys_per_metric(client: TestClient) -> None:
-    """`latest` under the bare name, the four stats as sibling keys — not nested."""
+    """Latest value under the bare name, the four stats as sibling keys."""
     metrics = client.get(f"/api/run/{RUN}").json()["metrics"]
     assert len(metrics) == 20
     assert metrics["valLoss"] == 0.8817
@@ -239,8 +211,7 @@ def test_artifacts_count_includes_the_synthesized_placeholder(client: TestClient
     body = client.get(f"/api/run/{RUN}").json()
     assert body["artifactsCount"] == 4
     names = [a["name"] for a in body["artifacts"]]
-    # The dedup is exact-match on name, so `confusion_matrix.png` does not match the
-    # record named `confusion_matrix` and both appear.
+    # Dedup is exact name match, so both of these appear.
     assert "confusion_matrix" in names and "confusion_matrix.png" in names
     placeholder = next(a for a in body["artifacts"] if a["name"] == "confusion_matrix.png")
     assert placeholder["type"] == "unknown"
@@ -249,7 +220,7 @@ def test_artifacts_count_includes_the_synthesized_placeholder(client: TestClient
 
 
 def test_artifact_metadata_is_passed_through_untransformed(client: TestClient) -> None:
-    """The one place a key is camelCase on disk, and the one place nothing is renamed."""
+    """Artifact metadata keys are not renamed (they're already camelCase on disk)."""
     artifacts = client.get(f"/api/run/{RUN}/artifacts").json()
     matrix = next(a for a in artifacts if a["name"] == "confusion_matrix")
     assert matrix["_id"] == "confusion_matrix_1"
@@ -265,7 +236,6 @@ def test_checkpoints_are_newest_first(client: TestClient) -> None:
 
 
 def test_system_metrics_are_returned_verbatim(client: TestClient) -> None:
-    """Shape A is an array. The backend never inspects this file and neither does this."""
     assert client.get(f"/api/run/{RUN}/system-metrics").json() == SYSTEM_SAMPLES
 
 
@@ -303,7 +273,7 @@ def test_metrics_history_echoes_the_whole_file(client: TestClient) -> None:
 
 
 def test_dashboard_wraps_and_the_others_do_not(client: TestClient) -> None:
-    """The one endpoint with an envelope. Everything else returns the bare payload."""
+    """Only /api/dashboard has an envelope."""
     dashboard = client.get("/api/dashboard").json()
     assert set(dashboard) == {"success", "message", "data"}
     assert dashboard["success"] is True
@@ -329,8 +299,7 @@ def test_experiment_stats_match_the_contract(client: TestClient) -> None:
 
 
 def test_the_same_run_is_named_two_things_on_two_pages(client: TestClient) -> None:
-    """A defect the contract records rather than fixes: the dashboard reads
-    `metadata.name` and the run page derives a name from `notes`."""
+    """Known inherited quirk: dashboard uses metadata.name, run page derives from notes."""
     on_dashboard = client.get(f"/api/experiment/{PROJECT}").json()["runs"][0]["name"]
     on_run_page = client.get(f"/api/run/{RUN}").json()["name"]
     assert on_dashboard == "mlp-2x256-lr3e-4"
@@ -350,7 +319,7 @@ def test_experiment_runs_carry_latest_only_without_stat_suffixes(client: TestCli
 
 
 def test_experiment_runs_never_404(client: TestClient) -> None:
-    """Inherited: an unknown project is an empty table, not an error."""
+    """Unknown project gives an empty list (inherited)."""
     response = client.get("/api/experiment/no-such-project/runs")
     assert response.status_code == 200
     assert response.json() == []
@@ -362,17 +331,14 @@ def test_latest_endpoints_return_the_single_run_and_experiment(client: TestClien
 
 
 # --------------------------------------------------------------------------------------
-# Deliberate divergence 1 — undefined becomes null
+# Divergence 1: undefined becomes null
 # --------------------------------------------------------------------------------------
 
 
 def test_absent_metadata_fields_are_null_rather_than_missing(root: Path) -> None:
-    """Express drops these five keys entirely; `JSON.stringify` omits `undefined`.
+    """Express dropped these keys; null keeps one fixed shape.
 
-    Emitting them as `null` keeps the Run object one fixed shape whatever the run
-    contains, which is what makes it typeable. Both are falsy in React, so no rendered
-    output changes — but a client doing `"endTime" in run` sees a different answer, which
-    is why this is pinned rather than assumed harmless.
+    Renders the same in React, but ``"endTime" in run`` now differs, so it's pinned.
     """
     bare = "bare_20260812T000000Z_0001"
     _write_json(
@@ -386,7 +352,7 @@ def test_absent_metadata_fields_are_null_rather_than_missing(root: Path) -> None
     for key in NULLABLE_RUN_KEYS:
         assert key in body, f"{key} must be present even when the field is absent"
         assert body[key] is None
-    # The fallbacks the contract specifies for a run with no summary.json.
+    # Fallbacks for a run with no summary.json.
     assert body["status"] == "running"
     assert body["duration"] == 0
     assert body["durationFormatted"] == "0s"
@@ -395,13 +361,12 @@ def test_absent_metadata_fields_are_null_rather_than_missing(root: Path) -> None
 
 
 # --------------------------------------------------------------------------------------
-# Deliberate divergence 2 — the CSV is quoted
+# Divergence 2: the CSV is quoted
 # --------------------------------------------------------------------------------------
 
 
 def test_csv_is_unquoted_when_nothing_needs_quoting(client: TestClient) -> None:
-    """The common case is byte-identical to the Express output, which is what makes the
-    quoting a fix rather than a format change."""
+    """Without special characters the output is byte-identical to Express."""
     body = client.get(f"/api/run/{RUN}/metrics/export?format=csv").text
     lines = body.split("\n")
     # Union of all keys across all lines, sorted alphabetically.
@@ -411,9 +376,7 @@ def test_csv_is_unquoted_when_nothing_needs_quoting(client: TestClient) -> None:
 
 
 def test_csv_quotes_a_value_containing_a_comma(root: Path) -> None:
-    """Express emitted `1,a,b,,1` here — five fields for four columns, every column to
-    the right of the comma shifted, in a file whose only purpose is to be opened in a
-    spreadsheet."""
+    """Express emitted an unquoted comma here, shifting every later column."""
     run = "csv_20260812T000000Z_0002"
     _write_json(root / "csv-proj" / run / "metadata.json",
                 {"created_at": "2026-08-12T00:00:00+00:00"})
@@ -435,14 +398,12 @@ def test_csv_headers_name_the_run_and_are_sanitised(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# Deliberate divergence 3 — one malformed run no longer 500s every page
+# Divergence 3: one malformed run no longer 500s every page
 # --------------------------------------------------------------------------------------
 
 
 def test_a_non_array_tags_does_not_take_down_the_dashboard(root: Path) -> None:
-    """`metadata.tags.forEach is not a function` — Express returned 500 for
-    `/api/dashboard`, i.e. the landing page for *every* project, because one run in one
-    project had a string where an array belonged."""
+    """In Express one run with string tags made /api/dashboard 500 for every project."""
     _write_json(
         root / "bad-tags" / "bad_20260812T000000Z_0003" / "metadata.json",
         {"created_at": "2026-08-12T00:00:00+00:00", "tags": "not-an-array"},
@@ -451,16 +412,14 @@ def test_a_non_array_tags_does_not_take_down_the_dashboard(root: Path) -> None:
 
     dashboard = client.get("/api/dashboard")
     assert dashboard.status_code == 200
-    # The healthy project is still served, which is the whole point.
+    # The healthy project is still served.
     assert {e["_id"] for e in dashboard.json()["data"]} == {PROJECT, "bad-tags"}
     broken = next(e for e in dashboard.json()["data"] if e["_id"] == "bad-tags")
     assert broken["tags"] == []
 
 
 def test_a_run_with_no_created_at_does_not_take_down_the_dashboard(root: Path) -> None:
-    """`new Date(undefined)` is an Invalid Date: it passes the `!lastActivity` guard, is
-    never displaced by a later comparison, and then `.toISOString()` throws. One run
-    missing one field returned 500 for every project's dashboard."""
+    """In Express, new Date(undefined) reached .toISOString() and 500'd the dashboard."""
     _write_json(
         root / "no-date" / "undated_20260812T000000Z_0004" / "metadata.json",
         {"tags": ["y"]},
@@ -475,9 +434,7 @@ def test_a_run_with_no_created_at_does_not_take_down_the_dashboard(root: Path) -
 
 
 def test_a_non_finite_metric_costs_its_value_and_not_its_row(root: Path) -> None:
-    """`JSON.parse` rejects a bare `NaN`, so Express dropped the whole line — including
-    every other metric logged at that step. Here the row survives with a null in it, and
-    the response stays parseable by a browser."""
+    """Express dropped lines with bare NaN; we keep the row with a null."""
     run = "nan_20260812T000000Z_0005"
     _write_json(root / "nan-proj" / run / "metadata.json",
                 {"created_at": "2026-08-12T00:00:00+00:00"})
@@ -497,7 +454,7 @@ def test_a_non_finite_metric_costs_its_value_and_not_its_row(root: Path) -> None
 
 
 # --------------------------------------------------------------------------------------
-# Deliberate divergence 4 — containment is a 404, never a 500
+# Divergence 4: containment is a 404, never a 500
 # --------------------------------------------------------------------------------------
 
 
@@ -522,8 +479,7 @@ def test_unaddressable_names_are_404_on_every_method(
 
 
 def test_error_bodies_do_not_leak_the_storage_path(client: TestClient, root: Path) -> None:
-    """Express answered a failed dashboard with `{success, message, error}` where `error`
-    was the raw exception message — for a filesystem failure, an absolute server path."""
+    """Express put the raw exception (often an absolute path) in error bodies."""
     for response in (
         client.get("/api/run/no-such-run"),
         client.get("/api/experiment/no-such-experiment"),
@@ -535,16 +491,15 @@ def test_error_bodies_do_not_leak_the_storage_path(client: TestClient, root: Pat
 
 
 # --------------------------------------------------------------------------------------
-# Deliberate divergence 5 — a stored experiment description is read back
+# Divergence 5: a stored experiment description is read back
 # --------------------------------------------------------------------------------------
 
 
 def test_a_stored_experiment_description_outranks_the_derivation(client: TestClient) -> None:
-    """Express wrote this file and read it nowhere, so the description a user typed lasted
-    until the next page load and was then replaced by the first run's notes — a silent
-    revert, with no error to report. Reading it back is the fix (GAPS M3); clearing the
-    box restores the derivation, because an experiment with no description at all reads as
-    a broken page rather than as a deliberate blank."""
+    """Express wrote the description but never read it back, so edits reverted on reload.
+
+    Clearing it falls back to the derived description.
+    """
     assert client.get(f"/api/experiment/{PROJECT}").json()["description"] == (
         f"Experiment: {PROJECT}"
     )
@@ -566,7 +521,7 @@ def test_a_stored_experiment_description_outranks_the_derivation(client: TestCli
 
 
 def test_tags_patch_merges_into_metadata_without_losing_keys(client: TestClient, root: Path) -> None:
-    """The read-modify-write the SDK has to survive: unknown keys must round-trip."""
+    """Unknown metadata keys survive the read-modify-write."""
     response = client.patch(f"/api/run/{RUN}/tags", json={"tags": ["a", "b"]})
     assert response.status_code == 200
     assert response.json() == {"message": "Tags updated", "tags": ["a", "b"]}
@@ -580,13 +535,12 @@ def test_tags_patch_merges_into_metadata_without_losing_keys(client: TestClient,
 
 
 def test_a_non_array_tags_is_rejected_before_the_run_is_looked_up(client: TestClient) -> None:
-    """The one piece of validation the format cannot do without: a string written here
-    is what 500s the dashboard for every project."""
+    """String tags on disk would break the dashboard, so they're refused up front."""
     for body in ({"tags": "oops"}, {}, {"tags": None}):
         response = client.patch(f"/api/run/{RUN}/tags", json=body)
         assert response.status_code == 400
         assert response.json() == {"message": "Tags must be an array"}
-    # Rejected on an unknown run too, and with the same body — the check precedes lookup.
+    # Checked before lookup, so an unknown run also gets 400.
     assert client.patch("/api/run/nope/tags", json={"tags": "oops"}).status_code == 400
 
 
@@ -599,8 +553,7 @@ def test_description_patch_writes_notes_into_summary(client: TestClient, root: P
 
 
 def test_a_non_string_description_is_refused(client: TestClient, root: Path) -> None:
-    """Express wrote it. `notes` doubles as the run's display name, so a number there
-    produces a run called 42 and an object one called `[object Object]`."""
+    """notes doubles as the display name, so non-strings are refused (Express accepted them)."""
     for path in (f"/api/run/{RUN}/description", f"/api/experiment/{PROJECT}"):
         response = client.patch(path, json={"description": 42})
         assert response.status_code == 400
@@ -610,8 +563,7 @@ def test_a_non_string_description_is_refused(client: TestClient, root: Path) -> 
 
 
 def test_patching_an_unknown_experiment_creates_nothing(client: TestClient, root: Path) -> None:
-    """Express's own 404 branch was unreachable: `writeJSON` mkdir'd the chain first, so
-    patching a nonexistent experiment silently created it."""
+    """Express created the experiment dir here instead of returning 404."""
     response = client.patch("/api/experiment/invented", json={"description": "x"})
     assert response.status_code == 404
     assert not (root / "invented").exists()

@@ -1,22 +1,8 @@
-/*
- * Rules that exist only in the static demo.
- *
- * They live here, rather than beside the components they style, because a CSS import is a
- * side effect and side effects survive tree-shaking: a `-disabled` rule written into
- * `Logs.css` would ship in the wheel's stylesheet, where nothing can ever match it. The
- * normal build empties this file before Vite reads it (`mlexp-drop-demo-only-styles` in
- * `vite.config.ts`), so the bundle that ships is byte-for-byte the one that shipped before
- * the demo existed.
- *
- * Everything here is a disabled state for a control the demo genuinely cannot operate.
- * They are dimmed rather than hidden on purpose: a control that vanishes reads as a
- * feature nobody built, and each of these is a real feature of the product — it is the
- * demo, with no server behind it, that cannot serve them.
- */
+/* Demo-only styles. The normal build empties this file (see vite.config.ts), so none of it
+   ships in the wheel. Everything here is a disabled state for a control the demo can't serve. */
 
-/* Both downloads are attachments the real server streams from disk. They use
-   aria-disabled rather than disabled, so the title that explains why stays reachable by
-   hover and keyboard; these rules give them the look of a disabled .btn. */
+/* Both downloads are streamed from disk by the real server. They use aria-disabled so the
+   title stays reachable; these rules make them look like a disabled .btn. */
 
 /* Log file download (Logs tab). */
 .logs-download[aria-disabled="true"],

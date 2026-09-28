@@ -79,7 +79,7 @@
 .cmp-table tbody th {
   white-space: nowrap;
 }
-/* Row labels: headers for the screen reader, ordinary grey labels to the eye. */
+/* Row labels: th for screen readers, styled as plain grey labels. */
 .cmp-table tbody th {
   height: 38px;
   background: none;

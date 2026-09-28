@@ -1,14 +1,8 @@
-"""Tests for the HTTP API.
+"""HTTP API tests.
 
-The assertions pin the shapes the existing React frontend consumes, which means several
-of them pin behaviour that is known to be wrong: an endpoint that never 404s, a duration
-that is a number on one route and a formatted string on another, a run named one thing on
-the dashboard and another on its own page. Those are the reader's contract, and a test
-failing is the point at which changing them becomes a deliberate act.
-
-The rest of the file covers the things the port added rather than inherited — traversal
-payloads answering 404 instead of 500, error bodies that carry no server path, the CSV
-export's headers, and the JSON message served when no UI bundle has been built.
+These pin the shapes the React frontend uses, including some known quirks (a route that
+never 404s, duration typed differently per route, two names for one run). Also covers
+traversal 404s, path-free error bodies, CSV headers and the no-bundle message.
 """
 
 from __future__ import annotations
@@ -23,7 +17,7 @@ from mlexperimenttracker.server.app import create_app
 from mlexperimenttracker.storage import Storage
 
 # --------------------------------------------------------------------------------------
-# Fixture tree — two projects, four run directories, one of them deliberately unreadable
+# Fixture tree: two projects, four run dirs, one unreadable
 # --------------------------------------------------------------------------------------
 
 PROJECT_A = "churn-mlp"
@@ -127,8 +121,7 @@ def root(tmp_path: Path) -> Path:
     )
     _write_json(live / "summary.json", {"state": "running", "duration": 61.5})
 
-    # No metadata.json: invisible to every per-run endpoint, and still counted in the
-    # experiment's totalRuns. Both halves of that are asserted below.
+    # No metadata.json: 404 on per-run endpoints but still counted in totalRuns.
     (tmp_path / PROJECT_A / RUN_BROKEN).mkdir(parents=True, exist_ok=True)
 
     failed = tmp_path / PROJECT_B / RUN_FAILED
@@ -160,7 +153,7 @@ def test_health_reports_the_resolved_root_and_counts(client: TestClient, root: P
     assert body["status"] == "ok"
     assert Path(body["storage_root"]) == root.resolve()
     assert body["projects"] == 2
-    # Four directories; the one without metadata.json counts here, as it does everywhere.
+    # Includes the run without metadata.json.
     assert body["runs"] == 4
     assert isinstance(body["version"], str) and body["version"]
 
@@ -189,7 +182,7 @@ def test_dashboard_stats_count_the_unreadable_run(client: TestClient) -> None:
     assert stats["totalRuns"] == 3
     assert stats["completedRuns"] == 1
     assert stats["runningRuns"] == 1
-    # 1 of 3, because the run with no metadata.json still inflates the denominator.
+    # 1 of 3: the run with no metadata.json is in the denominator.
     assert stats["successRate"] == "33%"
     assert isinstance(stats["avgDuration"], str)
 
@@ -208,8 +201,7 @@ def test_experiment_all_is_a_bare_array(client: TestClient) -> None:
 
 
 def test_experiment_all_is_not_swallowed_by_the_id_route(client: TestClient) -> None:
-    """`all` is a legal project name, and the parameterised route would match it first if
-    the two were declared the other way round."""
+    """/all must be declared before /{id}, or the id route would match it."""
     assert isinstance(client.get("/api/experiment/all").json(), list)
     assert client.get("/api/experiment/nope").status_code == 404
 
@@ -242,8 +234,7 @@ def test_experiment_runs_rows(client: TestClient) -> None:
     rows = client.get(f"/api/experiment/{PROJECT_A}/runs").json()
     assert isinstance(rows, list)
     row = next(r for r in rows if r["_id"] == RUN_DONE)
-    # Synthesised name, mapped status, duration as a pre-formatted string, latest-only
-    # metrics, and parameters from the reader that drops nested objects entirely.
+    # Duration is a formatted string here, and nested config objects are dropped.
     assert row["name"] == f"Run {RUN_DONE}"
     assert row["status"] == "completed"
     assert row["duration"] == "3m 51s"
@@ -301,8 +292,7 @@ def test_run_detail(client: TestClient) -> None:
     assert body["createdAt"] == body["startTime"] == "2026-08-12T09:14:03.482+05:30"
     assert body["endTime"] == "2026-08-12T09:17:54.882+05:30"
     assert body["tags"] == ["baseline", "churn"]
-    # notes is empty in both files, so the run is named after its ID here and after
-    # metadata.name on the dashboard.
+    # Empty notes, so named after its ID here (the dashboard uses metadata.name).
     assert body["name"] == f"Run {RUN_DONE}"
     assert body["pythonVersion"] == "3.12.13"
     assert len(body["metricsHistory"]) == len(METRIC_ROWS)
@@ -320,8 +310,7 @@ def test_run_detail_flattens_metrics_and_parameters(client: TestClient) -> None:
         "accuracy": 0.5677,
         "accuracyMean": 0.4386,
     }
-    # The run-detail reader flattens one level, so the nested model object survives here
-    # and vanishes from the comparison table.
+    # Run detail flattens one level of nesting; the comparison table drops it.
     assert body["parameters"]["modelType"] == "mlp"
 
 
@@ -345,7 +334,7 @@ def test_metrics_pivot(client: TestClient) -> None:
     series = client.get(f"/api/run/{RUN_DONE}/metrics").json()
     assert [s["name"] for s in series] == ["loss", "accuracy", "val_loss"]
     assert series[0]["data"][0] == {"step": 200, "value": 1.9124, "timestamp": 38.4}
-    # Sparse logging: val_loss appears on one row only.
+    # val_loss is only on one row.
     assert len(series[2]["data"]) == 1
 
 
@@ -362,7 +351,7 @@ def test_metrics_timeseries_with_a_metric(client: TestClient) -> None:
 
 
 def test_metrics_timeseries_is_not_swallowed_by_the_metrics_route(client: TestClient) -> None:
-    """Declared before `/metrics`, or the parameterised segment matches `timeseries`."""
+    """/metrics/timeseries must be declared first or the other route matches it."""
     response = client.get(f"/api/run/{RUN_DONE}/metrics/timeseries")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
@@ -392,8 +381,7 @@ def test_metrics_export_json(client: TestClient) -> None:
 
 
 def test_metrics_export_of_a_run_without_metrics_is_empty(client: TestClient) -> None:
-    """A zero-byte attachment with a 200, as the reader does — a run that logged nothing
-    has an empty export, not an error."""
+    """200 with an empty body, not an error."""
     response = client.get(f"/api/run/{RUN_LIVE}/metrics/export")
     assert response.status_code == 200
     assert response.text == ""
@@ -432,7 +420,7 @@ def test_checkpoints_are_newest_first(client: TestClient) -> None:
 def test_artifacts_include_a_placeholder_for_the_loose_file(client: TestClient) -> None:
     artifacts = client.get(f"/api/run/{RUN_DONE}/artifacts").json()
     assert [a["name"] for a in artifacts] == ["confusion_matrix", "confusion_matrix.png"]
-    # The declared artifact keeps its payload untransformed — f1Score stays camelCase.
+    # Metadata is passed through as-is.
     assert artifacts[0]["metadata"]["f1Score"] == [0.9222, 0.7856]
     assert artifacts[0]["_id"] == "confusion_matrix_1"
     assert artifacts[1]["type"] == "unknown"
@@ -453,7 +441,7 @@ def test_patch_tags(client: TestClient, root: Path) -> None:
     assert response.json() == {"message": "Tags updated", "tags": ["baseline", "final"]}
     metadata = json.loads((root / PROJECT_A / RUN_DONE / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["tags"] == ["baseline", "final"]
-    # Merged, not overwritten.
+    # Other keys are kept.
     assert metadata["name"] == "mlp-2x256-lr3e-4"
     assert "updated_at" in metadata
 
@@ -469,8 +457,7 @@ def test_patch_tags_rejects_a_missing_field(client: TestClient) -> None:
 
 
 def test_patch_tags_validates_before_it_resolves_the_run(client: TestClient) -> None:
-    """A non-array body is a 400 even for a run that does not exist, because the check is
-    about the payload and not about the run."""
+    """A bad body is a 400 even when the run doesn't exist."""
     response = client.patch("/api/run/no-such-run/tags", json={"tags": "baseline"})
     assert response.status_code == 400
 
@@ -491,8 +478,7 @@ def test_patch_description_creates_summary_when_absent(client: TestClient, root:
 
 
 def test_patch_description_renames_the_run(client: TestClient) -> None:
-    """notes is simultaneously the description and the display name, so this is what
-    editing a description does. Pinned so that fixing it is deliberate."""
+    """notes is both description and display name, so editing one renames the run."""
     client.patch(f"/api/run/{RUN_DONE}/description", json={"description": "best so far"})
     body = client.get(f"/api/run/{RUN_DONE}").json()
     assert body["description"] == "best so far"
@@ -583,14 +569,9 @@ def test_unknown_api_route_answers_json(client: TestClient) -> None:
 
 
 def test_root_explains_a_missing_bundle(root: Path, tmp_path: Path) -> None:
-    """A checkout that has not built the frontend has no bundle, and the honest answer to
-    that is a sentence rather than a 500 or an empty 404.
+    """Without a UI build, / returns a JSON message instead of a 500 or 404.
 
-    The absent directory is passed in rather than relying on the packaged one being
-    absent: ``server/static`` is a gitignored build artifact, so whether it exists depends
-    on whether anyone has run the UI build in this tree. A test that asserts on the
-    absence of a build output passes or fails for a reason that has nothing to do with the
-    code under test.
+    Uses an explicit missing dir because server/static is gitignored and may or may not exist.
     """
     no_bundle = TestClient(create_app(Storage(root), static_dir=tmp_path / "never-built"))
     response = no_bundle.get("/")
@@ -602,12 +583,7 @@ def test_root_explains_a_missing_bundle(root: Path, tmp_path: Path) -> None:
 
 @pytest.fixture()
 def ui_client(root: Path, tmp_path: Path) -> TestClient:
-    """The app with a bundle mounted the way a release mounts one.
-
-    The real mount reads a directory that only exists after the frontend is built, so it
-    is reproduced here against a fake bundle rather than skipped — the SPA fallback is the
-    part most likely to break, and a test that never runs is not a test.
-    """
+    """App with a fake UI bundle mounted, so the SPA fallback is tested without a build."""
     bundle = tmp_path / "bundle"
     (bundle / "assets").mkdir(parents=True)
     (bundle / "index.html").write_text("<!doctype html><div id=root></div>", encoding="utf-8")
@@ -636,8 +612,7 @@ def test_the_api_still_wins_over_the_bundle(ui_client: TestClient) -> None:
 
 
 def test_unknown_api_paths_do_not_fall_back_to_index(ui_client: TestClient) -> None:
-    """An SPA fallback that catches /api turns a mistyped endpoint into a page of HTML,
-    and the client reports the wrong problem."""
+    """A mistyped /api path should be a JSON 404, not the index page."""
     response = ui_client.get("/api/does-not-exist")
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")

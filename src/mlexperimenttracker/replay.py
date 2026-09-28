@@ -1,32 +1,8 @@
-"""Reconstruct the world a run was executed in, without disturbing the one you are in.
+"""Rebuild a run's code from its provenance manifest without touching the user's tree.
 
-**The design decision this module is built around is that it never touches the user's
-working tree.** The obvious implementation of "restore the commit and apply the patch" is
-``git checkout`` plus ``git apply``, and it is catastrophic: it is run against a repository
-where somebody is working, on a day when they have uncommitted changes, and it silently
-overwrites exactly the kind of work this project exists to preserve. A reproducibility tool
-that can destroy uncommitted work is worse than no tool, because it is used with confidence.
-
-So the commit is materialised with ``git worktree add`` into a directory the caller names,
-which is a fresh checkout beside the original rather than a mutation of it, and the patch is
-applied *inside* that worktree. The original tree — index, HEAD, working files — is
-untouched, and ``tests/test_verify_replay.py`` asserts it byte for byte after a materialise.
-The one thing that does change in the original repository is administrative: git records the
-new worktree under ``.git/worktrees``, undone with ``git worktree remove``.
-
-**What replay can and cannot restore**, stated here because overclaiming it is worse than
-not claiming it:
-
-- It restores *code*: the commit, and the uncommitted diff on top of it.
-- It emits the *resolved package versions* as a requirements list. That is not a lockfile.
-  It records what was installed, not the constraints that resolved to it, and a package
-  built from a local path or a wheel that no longer exists on an index cannot be recovered
-  from a version string.
-- It restores *nothing else*. Data that moved, a driver version, a GPU model, the kernel's
-  choice of nondeterministic reduction order, the wall-clock seed of a library that seeds
-  from time — none of these are in the manifest's gift. :mod:`~mlexperimenttracker.verify`
-  is the half that tells you which of them changed; replay is the half that puts back what
-  can be put back.
+The commit is checked out with ``git worktree add`` into a separate directory and the patch
+is applied there; the original index, HEAD and files are left alone. Restores code and
+lists package versions (not a lockfile). Data, drivers and hardware are not restored.
 """
 
 from __future__ import annotations
@@ -57,40 +33,27 @@ __all__ = [
     "plan",
 ]
 
-#: Written into the target worktree by :func:`materialise` and referenced by the install
-#: step. Named so it cannot collide with a ``requirements.txt`` the project already tracks
-#: — overwriting that file inside the checkout would be a small version of the destruction
-#: this module refuses to do.
+# Written into the worktree by materialise(). Named so it can't clobber a tracked
+# requirements.txt.
 REQUIREMENTS_FILE: str = "replay-requirements.txt"
 
-#: Allowlisted variables that describe an environment rather than configure one. Replaying
-#: ``VIRTUAL_ENV=/home/someone/.venvs/x`` on another machine points the shell at a
-#: directory that does not exist; the useful record is the *name*, which the plan reports
-#: as a note instead of as an instruction.
+# Env vars that describe the original machine rather than configure the run; not re-exported.
 _DESCRIPTIVE_ENV: frozenset[str] = frozenset({"CONDA_DEFAULT_ENV", "VIRTUAL_ENV"})
 
-#: A checkout can be large and can touch the object store; the metadata reads in
-#: ``provenance.py`` cannot. Same policy otherwise: explicit cwd, no shell, always a limit.
+# Checkouts can be slow, so these get longer timeouts than provenance.py's metadata reads.
 _WORKTREE_TIMEOUT: float = 300.0
 _APPLY_TIMEOUT: float = 120.0
 
 
 class ReplayError(RuntimeError):
-    """Raised by :func:`materialise` when the reconstruction cannot be started safely.
-
-    Deliberately *not* raised by :func:`plan`, and deliberately raised before anything is
-    written: every condition that produces one is checked while the disk is still
-    untouched, so a caller that gets this exception knows nothing happened.
-    """
+    """Raised by :func:`materialise` before anything is written. :func:`plan` never raises it."""
 
 
 @dataclass(frozen=True)
 class ReplayStep:
-    """One instruction. ``command`` is ``None`` for a step a human has to perform.
+    """One instruction. ``command`` is None for a manual step.
 
-    ``required`` separates the steps that reconstruct the run from the ones that only make
-    it comfortable — skipping a required step produces a different run, and the distinction
-    is what lets a caller render or execute a subset honestly.
+    ``required`` is False for steps the run can be reconstructed without.
     """
 
     order: int
@@ -111,11 +74,8 @@ class ReplayStep:
 class ReplayPlan:
     """The steps, the caveats, and the package set to rebuild.
 
-    ``warnings`` is not an error list. It carries everything the manifest could not
-    promise — a truncated patch, packages recorded as resolved versions rather than as a
-    resolution, datasets that replay does not restore — plus whatever went wrong during a
-    :func:`materialise`. A plan with warnings is still a plan; a plan whose warnings are
-    hidden is a claim.
+    ``warnings`` lists what the manifest can't guarantee (truncated patch, datasets, etc.)
+    plus anything that went wrong in :func:`materialise`.
     """
 
     run_id: str
@@ -136,14 +96,10 @@ class ReplayPlan:
         }
 
     def as_script(self) -> str:
-        """The plan as a shell transcript — to read first, and to run second.
+        """The plan as a POSIX shell script with ``set -eu``.
 
-        POSIX quoting via :mod:`shlex`, and every command is the same argument list
-        :func:`materialise` would execute, so the script and the API cannot drift apart.
-        It is emitted with ``set -eu`` because a replay that carries on after a failed
-        checkout reconstructs something that never existed. On Windows the commands are
-        identical and only the quoting differs, which is why this is a transcript rather
-        than a promise of an executable file.
+        Commands are the same arg lists :func:`materialise` runs. Quoting is POSIX, so on
+        Windows treat it as a transcript.
         """
         lines = [
             "#!/bin/sh",
@@ -178,18 +134,10 @@ def plan(
     *,
     target: str | Path | None = None,
 ) -> ReplayPlan:
-    """Describe the reconstruction without performing any part of it.
+    """Describe the reconstruction without doing any of it.
 
-    Pure: it reads the manifest and returns data. Nothing is created, no git command is
-    run, and a plan can therefore be produced for a run whose repository is not on this
-    machine at all — which is the case where reading the plan is most useful. That is also
-    why the first step says "from inside the repository" rather than naming one: without
-    running git there is no way to know where it is, and printing a guess as a path is how
-    a reader ends up in the wrong tree.
-
-    ``target`` is where the worktree would go. When it is omitted the literal ``<target>``
-    appears in the commands, because inventing a path and printing it as if it were chosen
-    is how a reader ends up with a directory they did not expect.
+    Reads the manifest only and runs no git, so it works even if the repo isn't on this
+    machine. Without ``target`` the commands use a literal ``<target>`` placeholder.
     """
     manifest_dict = storage.read_provenance(project, run_id)
     if manifest_dict is None:
@@ -239,22 +187,14 @@ def materialise(
     apply_patch: bool = True,
     cwd: str | Path | None = None,
 ) -> ReplayPlan:
-    """Create the worktree at the recorded commit and apply the recorded patch into it.
+    """Create a worktree at the recorded commit and apply the recorded patch into it.
 
-    Returns the same plan :func:`plan` produces, with what actually happened appended to
-    its warnings. ``cwd`` selects the repository, defaulting the way
-    :func:`~mlexperimenttracker.verify.verify` defaults it: the manifest's recorded working
-    directory when it still exists, the process working directory otherwise.
+    Returns :func:`plan`'s result with what happened added to its warnings. ``cwd`` picks
+    the repo; default is the recorded cwd if it still exists, else the process cwd.
 
-    Refuses, before writing anything, when the target exists and is not empty, when the
-    target would sit inside the source repository — a worktree nested in the tree it came
-    from turns up as untracked files in the original, which is a mutation by another name —
-    and when the recorded commit is not reachable here.
-
-    A patch that no longer applies is a **warning, not an exception**: the worktree at the
-    commit is still the most useful artefact available, and tearing it down to signal a
-    failure would take away the thing the user asked for. The warning says so in the first
-    clause so it cannot be skimmed past.
+    Raises :class:`ReplayError` before writing anything if the target is non-empty, sits
+    inside the repo, or the commit isn't reachable. A patch that fails to apply is only a
+    warning; the worktree is kept.
     """
     target_path = Path(target)
     _refuse_unusable_target(target_path)
@@ -288,11 +228,8 @@ def materialise(
     base = plan(storage, project, run_id, target=target_path)
     warnings = list(base.warnings)
 
-    # `--detach` so no branch is created: a replay is a read of history, and leaving a
-    # branch per run behind in somebody's repository is litter with their name on it.
-    # `core.autocrlf=false` so the checkout matches the patch, which is repository content;
-    # with the Git for Windows system default the two disagree and an intact patch is
-    # refused. Both flags are the difference between this working and appearing to work.
+    # --detach: don't leave a branch per replay. core.autocrlf=false: the Git for Windows
+    # default converts line endings and the patch then fails to apply.
     code, output = _git(
         repo,
         "-c",
@@ -422,12 +359,7 @@ def _plan_packages(
 
 
 def _plan_environment(manifest: Provenance, steps: list[ReplayStep]) -> None:
-    """Only the variables that *configure* a run, and never as an executable command.
-
-    Thread counts, device visibility and the distributed topology change results; the name
-    of the virtualenv the developer happened to be in does not, and re-exporting it would
-    point the shell at a path that does not exist on this machine.
-    """
+    """Add a manual step exporting the env vars that affect the run (not venv/conda names)."""
     settable = {
         name: value
         for name, value in manifest.environment.items()
@@ -453,9 +385,8 @@ def _plan_command(
         warnings.append("no command was recorded, so there is nothing to re-run.")
         return
     parts = [str(part) for part in argv]
-    # `sys.argv[0]` is the script, not the interpreter, so the recorded argv is not itself
-    # runnable. The recorded `python.executable` is a path on the original machine and
-    # would be a lie here, so the plan names the interpreter on the caller's PATH.
+    # argv[0] is the script, so prepend an interpreter. Use `python` from PATH; the recorded
+    # executable path is from the original machine.
     command = ["python", *parts] if parts[0].endswith(".py") else parts
     steps.append(
         ReplayStep(
@@ -503,9 +434,7 @@ def _plan_caveats(manifest: Provenance, warnings: list[str]) -> None:
 def _requirements(manifest: Provenance) -> list[str]:
     """``name==version`` per recorded distribution, sorted by lowercased name.
 
-    Entries with no version are dropped rather than emitted bare: a bare name in a
-    requirements file installs *the latest*, which is the one thing the manifest exists to
-    prevent, and doing it silently would be worse than the missing line.
+    Entries without a version are dropped; a bare name would install the latest.
     """
     lines: list[str] = []
     for name, version in sorted(manifest.packages.items(), key=lambda item: item[0].lower()):
@@ -521,7 +450,7 @@ def _requirements(manifest: Provenance) -> list[str]:
 
 
 def _refuse_unusable_target(target: Path) -> None:
-    """Every reason to stop before touching the disk, checked in one place."""
+    """Raise if the target exists and is not an empty directory."""
     if not target.exists():
         return
     if not target.is_dir():
@@ -596,12 +525,9 @@ def _base_directory(manifest: Provenance, cwd: str | Path | None) -> Path:
 
 
 def _git(repo: Path, *args: str, timeout: float | None = None) -> tuple[int, str]:
-    """One git command through the capture module's invocation policy.
+    """Run one git command via provenance's runner.
 
-    Returns ``(status, output)``, with ``-1`` for a command that could not be run at all —
-    which every caller here treats as a failure. git's own words are carried rather than
-    discarded because the two failures that matter, a missing commit and a refused
-    worktree, are both ones the user has to act on.
+    Returns ``(status, output)``; status is -1 if git couldn't be run at all.
     """
     try:
         result = _run_git(list(args), repo, timeout) if timeout else _run_git(list(args), repo)
@@ -611,11 +537,10 @@ def _git(repo: Path, *args: str, timeout: float | None = None) -> tuple[int, str
 
 
 def _git_input(repo: Path, payload: bytes, *args: str) -> tuple[int, str]:
-    """``git`` with bytes on stdin — the one case the shared helper cannot cover.
+    """Run git with bytes on stdin.
 
-    The patch is piped rather than written to a temporary file because :class:`Storage` is
-    the only thing in this package that opens a file, and a temporary patch on disk beside
-    the real one is a second copy of the most sensitive artefact in the run directory.
+    The patch is piped instead of written to a temp file, so no second copy of it (it may
+    hold secrets) lands on disk.
     """
     try:
         result = subprocess.run(

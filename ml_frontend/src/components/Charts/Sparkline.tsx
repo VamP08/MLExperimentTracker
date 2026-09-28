@@ -1,6 +1,6 @@
 interface SparklineProps {
   values: number[];
-  /** CSS colour for the line: one of the series tokens. */
+  /** CSS colour, one of the series tokens. */
   color: string;
   label: string;
 }
@@ -8,10 +8,7 @@ interface SparklineProps {
 const W = 240;
 const H = 44;
 
-/**
- * A run's training curve at the size of a list row. No axes: the row beside it carries the
- * numbers, and the curve's job is to show the shape — converging, diverging, flat.
- */
+/** Training curve sized for a list row. No axes, just the shape. */
 const Sparkline = ({ values, color, label }: SparklineProps) => {
   if (values.length < 2) return <span className="spark-empty">No curve</span>;
   const lo = Math.min(...values);

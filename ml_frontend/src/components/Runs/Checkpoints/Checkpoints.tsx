@@ -28,7 +28,7 @@ const formatDate = (value: string | null): string => {
     : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 };
 
-/** The run's saved checkpoints, newest first — the order the server sorts them in. */
+/** Saved checkpoints, newest first (server order). */
 const Checkpoints: React.FC<Props> = ({ runId }) => {
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
   const [loading, setLoading] = useState(true);

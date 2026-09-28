@@ -7,7 +7,7 @@ import { setNavOpen, useNavOpen } from "../../lib/shell"
 import { IS_DEMO } from "../../lib/api"
 import styles from "./Sidebar.module.css"
 
-// Interrupted runs are hollow; anything unrecognised reads as running, as it does everywhere else.
+// Interrupted runs are hollow; unknown states read as running, same as elsewhere.
 const statusClass = (status: string) =>
   status === "completed"
     ? styles.ok
@@ -18,19 +18,16 @@ const statusClass = (status: string) =>
         : styles.live
 
 /**
- * The fixed navigation rail: the four sections, then the archive itself as a tree.
- *
- * The tree answers "where am I and what is next to it" without a second request — the
- * dashboard payload already lists every experiment's runs. Only the experiment on screen is
- * expanded, so a large archive stays a list of names rather than a wall of runs.
+ * Fixed nav rail: the four sections, then the experiment tree from the dashboard payload.
+ * Only the experiment on screen is expanded.
  */
 const Sidebar = () => {
   const location = useLocation()
   const open = useNavOpen()
   const { data } = useDashboard()
 
-  // `/experiment` and `/runs` resolve server-side to the most recent experiment and run, so
-  // they were never a way back. Point the entries at what last actually loaded.
+  // `/experiment` and `/runs` resolve to the newest experiment/run, so link to the last one
+  // that actually loaded instead.
   const lastExperimentId = useLastVisited("experiment")
   const lastRunId = useLastVisited("run")
   const experimentPath = lastExperimentId ? `/experiment/${encodeURIComponent(lastExperimentId)}` : "/experiment"
@@ -45,7 +42,7 @@ const Sidebar = () => {
     (path === "/experiment" ? lastExperimentId : null) ??
     (path === "/runs" && lastRunId ? data?.find((e) => e.runs.some((r) => r._id === lastRunId))?._id : undefined)
 
-  // A drawer left open across a navigation would cover the page the user just asked for.
+  // Close the drawer on navigation.
   useEffect(() => {
     setNavOpen(false)
   }, [location.pathname])
@@ -143,8 +140,7 @@ const Sidebar = () => {
           </>
         )}
 
-        {/* Where the data lives, rather than the package version: the version is only known to
-            the server (/api/health), and the static demo has no server to ask. */}
+        {/* Data location instead of version: only the server knows the version, and the demo has none. */}
         <div className={styles.foot}>
           <span>{IS_DEMO ? "Static demo" : "Local store"}</span>
           <b>{IS_DEMO ? "nothing is saved" : "your runs, on this machine"}</b>

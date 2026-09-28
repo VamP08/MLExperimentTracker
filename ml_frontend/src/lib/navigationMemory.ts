@@ -1,24 +1,7 @@
 /**
- * The last experiment and the last run the user actually looked at.
- *
- * The sidebar's Experiment and Runs entries used to point at `/experiment` and
- * `/runs`, which are the *parameterless* routes: they resolve server-side to the
- * most recently active experiment and the newest run. So clicking "Experiment"
- * after opening one of a run's tabs did not go back to the experiment you were
- * in — it jumped to whichever one the storage tree reports as newest.
- * Remembering the ids here lets those two entries point somewhere the user has
- * actually been.
- *
- * Two rules the callers depend on:
- *
- * - An id is recorded when a page has *successfully loaded* that entity, never
- *   when a link is clicked. A navigation that 404s therefore leaves the memory
- *   pointing at the last thing that really rendered, instead of poisoning the
- *   sidebar with an id that does not resolve.
- * - Every `localStorage` access is wrapped. It throws outright in a private-mode
- *   browser and when the origin's storage quota is full, and a sidebar that
- *   cannot render is a far worse failure than a sidebar that has forgotten
- *   where you were.
+ * Last experiment and run the user actually loaded, so the sidebar can link back to them
+ * (`/experiment` and `/runs` resolve to the newest instead). Ids are only recorded after a
+ * successful load, and localStorage access is wrapped because it can throw.
  */
 
 import { useEffect, useSyncExternalStore } from "react";
@@ -48,11 +31,7 @@ function writeStored(entity: RememberedEntity, id: string): void {
   }
 }
 
-/**
- * The snapshot `useSyncExternalStore` reads. It has to be a stable value rather
- * than a fresh `localStorage` read, because that hook calls the getter during
- * render and compares by identity.
- */
+/** Cached value for useSyncExternalStore, which needs a stable snapshot between reads. */
 const cache: Record<RememberedEntity, string | null> = {
   experiment: readStored("experiment"),
   run: readStored("run"),
@@ -84,10 +63,7 @@ export function useLastVisited(entity: RememberedEntity): string | null {
   );
 }
 
-/**
- * Record `id` once it is known. Pass `null` while a page is loading or after it
- * has failed — nothing is written, so the previous memory survives.
- */
+/** Record `id` once known. Pass null while loading or on error to keep the previous value. */
 export function useRememberVisited(
   entity: RememberedEntity,
   id: string | null | undefined,

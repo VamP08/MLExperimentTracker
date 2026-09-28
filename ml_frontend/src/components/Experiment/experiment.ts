@@ -13,7 +13,7 @@ export interface ExperimentData {
   description: string;
   tags: string[];
   runs: ExperimentRun[];
-  // Hardcoded empty on the server (GAPS M14); read anyway because it is part of the contract.
+  // Always empty from the server for now, but it's part of the payload.
   activityTimeline: { date?: string; event?: string }[];
   stats: {
     totalRuns?: number;
@@ -42,9 +42,8 @@ export function runBadge(status: string): { tone: string; label: string } {
       return { tone: "running", label };
     case "interrupted":
       return { tone: "archived", label };
-    // Anything else — including the literal "unknown" the endpoint sends for a run with no
-    // summary — reads as running, the same rule the run page and the dashboard apply. A run
-    // that died without writing a terminal state looks alive; that is the format's known gap.
+    // Anything else (including "unknown" for a run with no summary) reads as running, same as
+    // the run page and dashboard. A run that crashed without a final state will look alive.
     default:
       return { tone: "running", label: "Running" };
   }

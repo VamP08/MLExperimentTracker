@@ -1,14 +1,7 @@
-"""Tests for the tracking SDK.
+"""SDK tests. Runs are read back through Storage, not the Run object's own state.
 
-Everything here is asserted by reading the run back through :class:`Storage` rather than
-by inspecting the SDK's own state, because the SDK's only real contract is the bytes it
-leaves on disk and the shapes the dashboard makes of them. A test that asked the Run
-object what it thought it had written would pass while the dashboard showed nothing.
-
-The crash-safety tests run in a **subprocess**. There is no way to prove in-process that
-an unhandled exception, an atexit hook or a signal produces a terminal state: the hooks
-under test are process-global, the test runner installs its own, and the interesting exit
-paths end the interpreter. A child process is the only honest observation point.
+Crash-safety tests use a subprocess: excepthook, atexit and signal handlers are
+process-global and those exit paths end the interpreter.
 """
 
 from __future__ import annotations
@@ -39,8 +32,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 
 @pytest.fixture(autouse=True)
 def _no_leaked_runs():
-    """A run left live would be finished by this process's atexit hook, into a temporary
-    directory that no longer exists, at a point where failures are invisible."""
+    """Finish leftover runs so atexit doesn't write into a deleted tmp dir."""
     yield
     for run in list(run_module._ACTIVE.values()):
         try:
@@ -50,18 +42,16 @@ def _no_leaked_runs():
 
 
 def start(tmp_path: Path, **kwargs):
-    """Signals are captured only in the subprocess tests: installing a SIGINT handler in
-    the pytest process would replace the one pytest itself relies on."""
+    """init() without signal capture, which would replace pytest's own SIGINT handler."""
     kwargs.setdefault("capture_signals", False)
     return met.init(storage_path=tmp_path, **kwargs)
 
 
 def run_child(tmp_path: Path, body: str, prelude: str = "") -> subprocess.CompletedProcess[str]:
-    """Execute a training script in a child interpreter against a temporary storage root.
+    """Run a training script in a child interpreter.
 
-    The root is passed through the environment rather than as an argument, so this also
-    exercises the resolution path the server uses. ``prelude`` runs before ``init``, which
-    is where a handler has to be installed for the SDK to have anything to chain to.
+    Storage root comes from EXPERIMENT_STORAGE_PATH. ``prelude`` runs before init(), e.g. to
+    install a signal handler for the SDK to chain to.
     """
     script = tmp_path / "child.py"
     script.write_text(
@@ -102,7 +92,7 @@ def child_state(tmp_path: Path) -> str | None:
 
 
 # --------------------------------------------------------------------------------------
-# The lifecycle, read back the way the dashboard reads it
+# Lifecycle
 # --------------------------------------------------------------------------------------
 
 
@@ -125,7 +115,6 @@ def test_full_lifecycle_round_trip(tmp_path: Path) -> None:
     read = storage.read_run("cifar10", run.id)
     assert read is not None
 
-    # Status, timing and identity as the run detail page sees them.
     assert read["status"] == "completed"
     assert read["state"] == "completed"
     assert isinstance(read["duration"], float) and read["duration"] >= 0
@@ -135,11 +124,11 @@ def test_full_lifecycle_round_trip(tmp_path: Path) -> None:
     assert read["tags"] == ["baseline", "resnet"]
     assert read["experimentId"] == "cifar10"
 
-    # Parameters arrive camelCased from a flat config, both of the reader's parsers agree.
+    # camelCased, and both config readers agree.
     assert read["parameters"] == {"learningRate": 3e-4, "batchSize": 64, "epochs": 30}
     assert storage.read_experiment_runs("cifar10")[0]["parameters"] == read["parameters"]
 
-    # Every metric appears as a latest plus four stat siblings — the write-twice rule.
+    # Each metric: latest value plus four stats.
     assert read["metrics"]["loss"] == pytest.approx(1.2)
     assert read["metrics"]["lossMin"] == pytest.approx(1.2)
     assert read["metrics"]["lossMax"] == pytest.approx(1.9)
@@ -150,7 +139,7 @@ def test_full_lifecycle_round_trip(tmp_path: Path) -> None:
         for suffix in ("", "Mean", "Max", "Min", "Stddev")
     }
 
-    # ...and simultaneously as chartable series pivoted out of the wide rows.
+    # Also as per-metric series.
     series = {entry["name"]: entry["data"] for entry in storage.read_metrics("cifar10", run.id)}
     assert set(series) == {"loss", "accuracy", "val_loss"}
     assert [point["step"] for point in series["loss"]] == [0, 1, 2]
@@ -160,7 +149,6 @@ def test_full_lifecycle_round_trip(tmp_path: Path) -> None:
     assert len(read["checkpoints"]) == 1
     assert read["checkpoints"][0]["name"] == "epoch_01"
 
-    # The dashboard aggregation counts it exactly once, in the completed bucket.
     experiment = storage.read_experiment("cifar10")
     assert experiment is not None
     assert experiment["stats"]["totalRuns"] == 1
@@ -176,10 +164,10 @@ def test_metadata_is_written_before_init_returns(tmp_path: Path) -> None:
     assert metadata["format_version"]
     assert isinstance(metadata["tags"], list)
     assert metadata["platform"] and metadata["python_version"] and metadata["working_directory"]
-    # An offset is mandatory: a bare local timestamp is parsed in the server's zone.
+    # Needs an offset, or the server parses it in its own zone.
     assert metadata["created_at"][-6] in "+-" or metadata["created_at"].endswith("Z")
 
-    # Visible to the reader immediately, before a single metric exists.
+    # Visible before any metric is logged.
     read = Storage(tmp_path).read_run("p1", run.id)
     assert read is not None and read["status"] == "running"
     run.finish()
@@ -190,7 +178,7 @@ def test_run_id_embeds_the_project_and_is_addressable(tmp_path: Path) -> None:
     assert run.id.startswith("churn-mlp_")
     parts = run.id.rsplit("_", 2)
     assert parts[1].endswith("Z") and len(parts[2]) == 4
-    # Two runs in the same second still differ, and neither collides across projects.
+    # Two runs in the same second still get different ids.
     other = start(tmp_path, project="churn-mlp")
     assert other.id != run.id
     assert Storage(tmp_path).find_run(run.id) == ("churn-mlp", run.id)
@@ -205,7 +193,7 @@ def test_state_flips_to_running_on_the_first_step(tmp_path: Path) -> None:
     metadata = Storage(tmp_path).read_json(run.path / "metadata.json")
     summary = Storage(tmp_path).read_json(run.path / SUMMARY_FILE)
     assert metadata is not None and metadata["state"] == "running"
-    # The dashboard counters read summary.state exclusively, so it has to be there too.
+    # Dashboard counters read only summary.state.
     assert summary is not None and summary["state"] == "running"
     run.finish()
 
@@ -261,7 +249,7 @@ def test_reserved_metric_keys_are_rejected(tmp_path: Path, reserved: str) -> Non
     run = start(tmp_path, project="p7")
     with pytest.raises(ValueError, match="reserved"):
         run.log({reserved: 1.0})
-    # Nothing was written: the row is rejected whole, not partially.
+    # The whole row is rejected.
     assert not (run.path / METRICS_FILE).exists()
     run.finish()
 
@@ -290,8 +278,7 @@ def test_non_finite_values_are_dropped_not_written(tmp_path: Path) -> None:
         run.log({"loss": float("nan"), "accuracy": 0.5}, step=0)
     run.finish()
     rows = Storage(tmp_path).read_jsonl(run.path / METRICS_FILE)
-    # The line survives with the rest of the row intact — a bare NaN would have cost the
-    # whole line, and with it the accuracy logged beside it.
+    # A bare NaN would make the whole line invalid JSON; the rest of the row survives.
     assert len(rows) == 1
     assert "loss" not in rows[0]
     assert rows[0]["accuracy"] == 0.5
@@ -313,7 +300,7 @@ def test_step_auto_increments_and_follows_an_explicit_step(tmp_path: Path) -> No
     run.finish()
     rows = Storage(tmp_path).read_jsonl(run.path / METRICS_FILE)
     assert [row["step"] for row in rows] == [0, 1, 100, 101]
-    # Relative seconds, monotonic, and never a date string.
+    # Relative seconds as floats.
     assert all(isinstance(row["timestamp"], float) for row in rows)
     assert rows[0]["timestamp"] <= rows[-1]["timestamp"]
     assert rows[0]["absolute_timestamp"] > 1_600_000_000
@@ -325,8 +312,7 @@ def test_step_auto_increments_and_follows_an_explicit_step(tmp_path: Path) -> No
 
 
 def test_welford_matches_the_statistics_module(tmp_path: Path) -> None:
-    """The four stats the reader recognises, against the standard library, on the series
-    from the data contract's worked example. ``stddev`` is the population deviation."""
+    """mean/min/max/stddev vs the stdlib. stddev is the population deviation."""
     series = [1.9124, 1.5507, 1.2038, 1.0114, 0.8331, 0.7402]
     run = start(tmp_path, project="p13")
     for step, value in enumerate(series):
@@ -341,18 +327,12 @@ def test_welford_matches_the_statistics_module(tmp_path: Path) -> None:
     assert stats["min"] == pytest.approx(min(series))
     assert stats["max"] == pytest.approx(max(series))
     assert stats["stddev"] == pytest.approx(statistics.pstdev(series), rel=1e-12)
-    # The fixture in the data contract rounds these to four places; the same numbers.
     assert round(stats["mean"], 4) == 1.2086
     assert round(stats["stddev"], 4) == 0.4106
 
 
 def test_welford_survives_a_series_that_destroys_a_naive_accumulator(tmp_path: Path) -> None:
-    """The reason for Welford rather than count/sum/sum-of-squares.
-
-    Large values with small variance are exactly where ``E[x²] - E[x]²`` cancels away its
-    own significant digits — and exactly the shape of a loss curve that has converged, or
-    of any metric logged as a running total.
-    """
+    """Why Welford: E[x²] - E[x]² loses all precision on large values with small variance."""
     series = [1e9 + value for value in (1.9124, 1.5507, 1.2038, 1.0114, 0.8331, 0.7402)]
     exact = statistics.pstdev(series)
 
@@ -368,8 +348,7 @@ def test_welford_survives_a_series_that_destroys_a_naive_accumulator(tmp_path: P
     naive_variance = total_squares / len(series) - (total / len(series)) ** 2
 
     assert welford == pytest.approx(exact, rel=1e-6)
-    # The naive form does not merely lose digits here; it produces a number of the wrong
-    # order of magnitude, or a negative variance it cannot take the root of.
+    # Naive form is way off or goes negative.
     assert naive_variance < 0 or abs(naive_variance**0.5 - exact) > exact * 0.1
 
 
@@ -401,17 +380,17 @@ def test_summary_is_flushed_periodically_not_per_step(tmp_path: Path) -> None:
     run.log({"loss": 0.1})
     second = Storage(tmp_path).read_json(run.path / SUMMARY_FILE)
     assert first is not None and second is not None
-    # The second step is in metrics.jsonl but not yet in the summary...
+    # Second step is in metrics.jsonl but not the summary yet.
     assert second["metrics_summary"]["loss"]["latest"] == pytest.approx(1.0)
     run.finish()
-    # ...and finish() is what guarantees the final numbers regardless of cadence.
+    # finish() always flushes.
     final = Storage(tmp_path).read_json(run.path / SUMMARY_FILE)
     assert final is not None
     assert final["metrics_summary"]["loss"]["latest"] == pytest.approx(0.1)
 
 
 # --------------------------------------------------------------------------------------
-# Crash safety — the property the format cannot recover without
+# Crash safety
 # --------------------------------------------------------------------------------------
 
 
@@ -425,7 +404,7 @@ def test_context_manager_records_failure(tmp_path: Path) -> None:
     assert read is not None
     assert read["state"] == "failed"
     assert read["status"] == "failed"
-    # Metrics logged before the crash survive, aggregates included.
+    # Metrics logged before the crash survive.
     assert read["metrics"]["loss"] == pytest.approx(1.0)
 
 
@@ -441,16 +420,12 @@ def test_context_manager_records_a_keyboard_interrupt_as_interrupted(tmp_path: P
             raise KeyboardInterrupt
     read = Storage(tmp_path).read_run("p19", run.id)
     assert read["state"] == "interrupted"
-    # ...which the dashboard files under "archived", its only vocabulary for a kill.
+    # The dashboard shows interrupted as "archived".
     assert read["status"] == "archived"
 
 
 def test_unhandled_exception_lands_in_failed_not_running(tmp_path: Path) -> None:
-    """The single most valuable correctness property of the SDK.
-
-    Without the excepthook this run reads as ``running`` forever: there is no heartbeat and
-    no staleness rule in the format, so nothing will ever correct it.
-    """
+    """Without the excepthook the run stays "running" forever (no heartbeat or staleness)."""
     result = run_child(tmp_path, "raise RuntimeError('training exploded')")
     assert result.returncode != 0
     assert "training exploded" in result.stderr
@@ -472,17 +447,13 @@ def test_a_signal_lands_in_interrupted_and_the_signal_still_propagates(tmp_path:
         """,
     )
     assert child_state(tmp_path) == "interrupted"
-    # Chained, not swallowed: the default handler still raised KeyboardInterrupt.
+    # Chained: the default handler still raised KeyboardInterrupt.
     assert result.returncode != 0
     assert "KeyboardInterrupt" in result.stderr
 
 
 def test_a_previously_installed_signal_handler_is_chained_to(tmp_path: Path) -> None:
-    """The application's own handler must still run, and still decide the exit.
-
-    A tracker that replaced it would change how the program behaves under Ctrl-C, which is
-    a far worse trade than losing a run's status.
-    """
+    """The app's own handler still runs and still decides the exit."""
     result = run_child(
         tmp_path,
         "signal.raise_signal(signal.SIGINT)",
@@ -518,7 +489,7 @@ def test_crash_metrics_survive_with_their_aggregates(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# Artifacts — the payloads the React components hardcode
+# Artifacts
 # --------------------------------------------------------------------------------------
 
 
@@ -538,8 +509,7 @@ def test_confusion_matrix_payload_uses_camel_case_f1(tmp_path: Path) -> None:
     assert artifact["type"] == "confusion_matrix"
     assert artifact["version"] == "1"
     payload = artifact["metadata"]
-    # The one camelCase key in the contract; the component reads metadata with no
-    # transform, so f1_score would simply not be found.
+    # The UI reads metadata untransformed, so this key must be camelCase.
     assert "f1Score" in payload and "f1_score" not in payload
     assert payload["labels"] == ["retained", "churned"]
     # Counts stay whole so the UI does not render 812.0.
@@ -618,7 +588,7 @@ def test_checkpoint_sidecar_records_the_real_weight_size(tmp_path: Path) -> None
     assert payload is not None
     assert payload["checkpoint_name"] == "epoch_02"
     assert payload["step"] == 782
-    # The server reports the sidecar's size today; the true number is written for the fix.
+    # Size of the weights file, not the sidecar.
     assert payload["size_bytes"] == 4096
 
     listed = Storage(tmp_path).read_checkpoints("p26", run.id)
@@ -664,15 +634,15 @@ def test_config_is_flattened_to_scalars_both_readers_can_see(tmp_path: Path) -> 
     config = Storage(tmp_path).read_json(run.path / "config.json")
     assert config == {
         "learning_rate": 3e-4,
-        # Depth two would be discarded entirely by the run-detail reader.
+        # The run-detail reader drops nested dicts.
         "model_encoder_layers": 12,
-        # A list would flatten to hiddenSizes0/hiddenSizes1 and vanish in the comparison table.
+        # A list would become hiddenSizes0/hiddenSizes1 in the comparison table.
         "hidden_sizes": "256,256",
         "mixed_precision": True,
         "early_stopping": None,
         "device": "cuda:0",
     }
-    # Both of the reader's disagreeing config parsers now see the same twelve-ish keys.
+    # Both config readers now agree.
     read = Storage(tmp_path).read_run("p29", run.id)
     assert read["parameters"] == Storage(tmp_path).read_experiment_runs("p29")[0]["parameters"]
 
@@ -707,7 +677,7 @@ def test_a_case_variant_project_adopts_the_existing_directory(tmp_path: Path) ->
     first.finish()
     second = start(tmp_path, project="myproject")
     second.finish()
-    # One project on every platform, not one on Windows and two on Linux.
+    # Same result on case-sensitive and case-insensitive filesystems.
     assert Storage(tmp_path).list_projects() == ["MyProject"]
     assert second.project == "MyProject"
 
@@ -747,7 +717,7 @@ class _FakePsutil:
 
 
 def test_system_metrics_are_written_as_shape_a(tmp_path: Path, monkeypatch) -> None:
-    """Shape A is an array of homogeneous samples; anything else renders as unavailable."""
+    """Shape A: an array of samples with identical keys. Other shapes show as unavailable."""
     monkeypatch.setattr("mlexperimenttracker.system._psutil_cache", _FakePsutil)
     run = start(tmp_path, project="p33", system_metrics=True, system_metrics_interval=0.5)
     run.log({"loss": 1.0})
@@ -763,9 +733,8 @@ def test_system_metrics_are_written_as_shape_a(tmp_path: Path, monkeypatch) -> N
     assert first["disk_usage_percent"] == pytest.approx(71.4)
     # Epoch seconds here, unlike the relative seconds in metrics.jsonl.
     assert first["timestamp"] > 1_600_000_000
-    # Homogeneous: the reader picks its columns from the first sample alone.
+    # The reader takes its columns from the first sample.
     assert all(sample.keys() == first.keys() for sample in samples)
-    # And the reader hands it to the component untouched.
     assert Storage(tmp_path).read_system_metrics("p33", run.id) == samples
 
 
@@ -775,7 +744,7 @@ def test_system_metrics_degrade_to_nothing_without_psutil(tmp_path: Path, monkey
     run = start(tmp_path, project="p34", system_metrics=True)
     run.log({"loss": 1.0})
     run.finish()
-    # No file at all rather than an empty array: the run itself is unaffected.
+    # No file, not an empty array, and the run is unaffected.
     assert not (run.path / "system_metrics.json").exists()
     assert Storage(tmp_path).read_run("p34", run.id)["state"] == "completed"
 
@@ -793,9 +762,7 @@ def test_system_metrics_are_off_unless_asked_for(tmp_path: Path) -> None:
 
 
 def test_the_public_surface_stays_small() -> None:
-    """``hash_path`` joined the surface with format 1.1: a dataset digest is worth
-    computing without a run — to check what is on a machine before starting one — and it
-    is the only part of provenance capture a caller has a reason to reach directly."""
+    """hash_path is public (format 1.1) so a dataset can be hashed without a run."""
     assert met.__all__ == ["Run", "hash_path", "init", "__version__"]
     assert met.__version__
     assert callable(met.init)

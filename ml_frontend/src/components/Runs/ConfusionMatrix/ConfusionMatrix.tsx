@@ -25,7 +25,6 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
       const response = await apiFetch(`/api/run/${runId}/artifacts`);
 
       if (!response.ok) {
@@ -41,13 +40,12 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
         (art) => art.type === 'confusion_matrix' || art.type === 'classification_report'
       );
 
-      // `metadata` is passed through verbatim, so the keys are read exactly as
-      // written — `f1Score` is camelCase on disk for this payload alone.
+      // metadata is passed through as-is, so `f1Score` is camelCase on disk here.
       const payload = cmArtifact?.metadata as ConfusionMatrixData | undefined;
       const usable =
         payload && Array.isArray(payload.labels) && Array.isArray(payload.matrix) && payload.matrix.length > 0;
 
-      // A run with no confusion matrix is the ordinary case, not a failure.
+      // No confusion matrix is normal, not an error.
       setData(usable ? payload : null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -124,7 +122,7 @@ const ConfusionMatrix: React.FC<Props> = ({ runId }) => {
     return shell(<div className="state error">Could not load the confusion matrix: {error}</div>);
   }
 
-  // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
+  // Nothing to draw. The Evaluation tab shows the empty message.
   if (!data) {
     return null;
   }

@@ -11,14 +11,13 @@ interface Props {
 }
 
 /**
- * Dialog shell around `RunComparison` — the "Compare selected" button in the
- * experiment's runs table opens this (GAPS M11). The comparison itself owns
- * its own fetching and states; this file owns only dismissal and focus.
+ * Dialog around `RunComparison`, opened from "Compare selected" in the runs table.
+ * Only handles dismissal and focus.
  */
 const RunComparisonModal = ({ experimentId, selectedRunIds, onClose }: Props) => {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  // The caller passes a fresh closure each render; reading it through a ref keeps the
-  // effect below to one run per open, so focus is not bounced on every parent render.
+  // onClose is a new closure each render. Reading it through a ref keeps the effect to one
+  // run per open, so focus doesn't jump on parent re-renders.
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -34,7 +33,7 @@ const RunComparisonModal = ({ experimentId, selectedRunIds, onClose }: Props) =>
     document.addEventListener('keydown', onKeyDown);
     closeButtonRef.current?.focus();
 
-    // The page behind a full-height dialog should not scroll with it.
+    // Lock background scroll while open.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 

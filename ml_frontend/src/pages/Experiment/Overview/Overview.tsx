@@ -160,7 +160,7 @@ const Overview = ({ experiment, onOpenRuns }: OverviewProps) => {
         )}
       </section>
 
-      {/* Empty on every server today (GAPS M14): no card at all rather than an empty one. */}
+      {/* Always empty from the server for now, so skip the card. */}
       {timeline.length > 0 && (
         <section className="panel" aria-labelledby="exp-activity-title">
           <div className="panel-head">

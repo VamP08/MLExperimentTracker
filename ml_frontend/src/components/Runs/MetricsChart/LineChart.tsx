@@ -10,7 +10,7 @@ export interface LinePoint {
 
 export interface LineSeries {
   name: string;
-  /** Position in the run's series list; picks one of the five spectral colours. */
+  /** Index in the run's series list; picks the series colour. */
   index: number;
   pts: LinePoint[];
 }
@@ -24,8 +24,8 @@ interface LineChartProps {
   /** Series drawn on top at full strength while the rest recede. */
   highlight?: string;
   /**
-   * Read each series at its last point at or before the hovered step, rather than only at an
-   * exact match. For series logged on different step grids, such as runs with different batch sizes.
+   * Read each series at its last point at or before the hovered step, not only exact matches.
+   * Useful when series are logged on different step grids.
    */
   carry?: boolean;
 }
@@ -33,9 +33,8 @@ interface LineChartProps {
 const PAD = { l: 60, r: 16, t: 12, b: 28 };
 
 /**
- * Step-indexed line chart, drawn at the container's real pixel width so axis text stays
- * legible from a phone to a wide monitor. Hovering pins a crosshair to the nearest logged
- * step and reads every series at it; otherwise the readout shows each series' last point.
+ * Step-indexed line chart drawn at the container's pixel width so axis text stays readable.
+ * Hover shows a crosshair at the nearest step; otherwise the readout shows the last points.
  */
 const LineChart = ({ series, label, height = 320, format = fmt, highlight, carry = false }: LineChartProps) => {
   const wrap = useRef<HTMLDivElement>(null);

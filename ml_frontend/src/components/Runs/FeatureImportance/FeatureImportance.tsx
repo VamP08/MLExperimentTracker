@@ -23,7 +23,6 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
     try {
       setLoading(true);
       setError(null);
-      // GAPS B9: the mounted prefix is singular. `/api/runs/...` was never a route.
       const response = await apiFetch(`/api/run/${runId}/artifacts`);
 
       if (!response.ok) {
@@ -42,7 +41,7 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
       );
 
       const raw = fiArtifact?.metadata?.features;
-      // A run with no feature importances is the ordinary case, not a failure.
+      // No feature importances is normal, not an error.
       setFeatures(
         Array.isArray(raw)
           ? (raw as FeatureData[]).filter(
@@ -98,7 +97,7 @@ const FeatureImportance: React.FC<Props> = ({ runId }) => {
     return shell(<div className="state error">Could not load feature importances: {error}</div>);
   }
 
-  // Nothing to draw is not an error; the Evaluation tab carries the one quiet line.
+  // Nothing to draw. The Evaluation tab shows the empty message.
   if (features.length === 0) {
     return null;
   }

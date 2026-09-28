@@ -1,18 +1,7 @@
-"""Tests for run-output capture: ``logs.jsonl``, the tee, the handler and the routes.
+"""Tests for output capture: logs.jsonl, the stream tee, the logging handler and the routes.
 
-Two properties here are not about what is recorded, and they are the ones worth reading
-first. **A captured ``print`` must still reach the terminal** — a tracker that swallows a
-user's output has broken their program in exchange for a file they cannot see yet. And
-**the streams must be exactly as they were once the run has finished**, on the clean path
-and on the crash path alike, because a run that leaves ``sys.stdout`` wrapped has broken
-every ``print`` for the remaining life of the process.
-
-Both are asserted against real interpreter state rather than against a double: the tee
-wraps whatever ``sys.stdout`` is at the time, so a test that handed it a ``StringIO`` and
-checked the ``StringIO`` would prove nothing about the object the user's ``print`` actually
-reaches. The subprocess tests exist for the same reason ``test_sdk.py``'s do — an
-excepthook and an ``atexit`` hook cannot be observed honestly from inside the process that
-installed them.
+Captured output must still reach the terminal, and sys.stdout/stderr must be restored after
+finish, on success and on crash. Excepthook/atexit paths are tested in a subprocess.
 """
 
 from __future__ import annotations
@@ -42,8 +31,7 @@ PROJECT = "logging-project"
 
 @pytest.fixture(autouse=True)
 def _no_leaked_runs():
-    """A run left live would be finished by this process's atexit hook — into a temporary
-    directory that no longer exists, with the streams still wrapped."""
+    """Finish leftover runs so atexit doesn't write into a deleted tmp dir."""
     yield
     for run in list(run_module._ACTIVE.values()):
         try:
@@ -54,7 +42,7 @@ def _no_leaked_runs():
 
 @pytest.fixture(autouse=True)
 def _streams_are_returned():
-    """Every test in this file is a bug in this file if it leaves the streams replaced."""
+    """Fail any test that leaves sys.stdout/stderr replaced."""
     stdout, stderr = sys.stdout, sys.stderr
     yield
     assert sys.stdout is stdout, "a test left sys.stdout replaced"
@@ -62,8 +50,7 @@ def _streams_are_returned():
 
 
 def start(tmp_path: Path, **kwargs):
-    """Signals are captured only in the subprocess tests: installing a SIGINT handler in
-    the pytest process would replace the one pytest itself relies on."""
+    """Start a run without signal capture (it would replace pytest's SIGINT handler)."""
     kwargs.setdefault("capture_signals", False)
     kwargs.setdefault("provenance", False)
     kwargs.setdefault("project", PROJECT)
@@ -71,8 +58,7 @@ def start(tmp_path: Path, **kwargs):
 
 
 def read_lines(tmp_path: Path, run_id: str) -> list[dict]:
-    """The file itself, parsed here rather than through Storage, so a test can tell a
-    reader bug from a writer bug."""
+    """Parse logs.jsonl directly, bypassing Storage, to separate reader and writer bugs."""
     path = tmp_path / PROJECT / run_id / LOGS_FILE
     if not path.exists():
         return []
@@ -138,15 +124,13 @@ def test_a_record_round_trips_with_every_field_the_contract_names(tmp_path: Path
         assert record["source"] == "user"
         assert isinstance(record["timestamp"], float)
         assert isinstance(record["absolute_timestamp"], float)
-        # Relative seconds since the run started, and epoch seconds — the convention
-        # metrics.jsonl already uses. The pair must agree with the run's own start.
+        # Seconds since run start plus epoch seconds, same as metrics.jsonl.
         assert 0.0 <= record["timestamp"] < 60.0
         assert abs(record["absolute_timestamp"] - time.time()) < 60.0
 
 
 def test_a_1_1_directory_still_reads_as_a_run(tmp_path: Path) -> None:
-    """The additive-bump claim, exercised: a log file must be invisible to every existing
-    read path, exactly as the provenance manifest is."""
+    """A log file doesn't change what the existing read paths return."""
     storage = Storage(tmp_path)
     storage.create_run(
         PROJECT,
@@ -196,9 +180,9 @@ def test_the_level_filter_selects_one_severity_exactly(tmp_path: Path) -> None:
         "line 2",
     ]
     assert len(storage.read_logs(PROJECT, run_id, level="error")) == 1
-    # Case folds, because the value arrives from a query string.
+    # Case-insensitive since it comes from a query string.
     assert len(storage.read_logs(PROJECT, run_id, level="ERROR")) == 1
-    # And a level outside the vocabulary matches nothing rather than quietly matching all.
+    # An unknown level matches nothing, not everything.
     assert storage.read_logs(PROJECT, run_id, level="trace") == []
 
 
@@ -219,16 +203,14 @@ def test_pagination_walks_the_file_and_clamps_nonsense(tmp_path: Path) -> None:
     assert storage.read_logs(PROJECT, run_id, limit=0) == []
     assert storage.read_logs(PROJECT, run_id, limit=-5) == []
     assert len(storage.read_logs(PROJECT, run_id, offset=-5)) == 6
-    # Paging composes with filtering rather than preceding it: the offset counts the rows
-    # the caller can see, not the rows on disk.
+    # Offset applies after filtering.
     assert [
         r["message"] for r in storage.read_logs(PROJECT, run_id, level="info", offset=1)
     ] == ["line 2"]
 
 
 def test_a_torn_final_line_costs_that_line_and_nothing_else(tmp_path: Path) -> None:
-    """An interrupted append leaves half a line. The whole design of appending per record
-    rests on that costing one record rather than the file."""
+    """An interrupted append leaves half a line; only that record is lost."""
     storage = Storage(tmp_path)
     run_id = _seed(storage)
     path = tmp_path / PROJECT / run_id / LOGS_FILE
@@ -268,8 +250,7 @@ def test_an_unaddressable_name_is_refused_by_every_log_method(
 
 
 def test_appending_never_creates_a_run_directory(tmp_path: Path) -> None:
-    """A phantom directory holding logs and no metadata.json is a run the dashboard cannot
-    open and still counts against the project's success rate."""
+    """A dir with logs but no metadata.json would still count against the success rate."""
     storage = Storage(tmp_path)
     assert storage.append_log(PROJECT, "never_created", {"message": "x"}) is False
     assert not (tmp_path / PROJECT / "never_created").exists()
@@ -293,8 +274,7 @@ def test_print_is_captured_and_still_reaches_the_real_stdout(tmp_path: Path, cap
         sources = {r["message"]: r["source"] for r in storage.read_logs(PROJECT, run.id)}
         assert sources["Epoch 1/100"] == "stdout"
         assert sources["to stderr"] == "stderr"
-        # stderr is a warning rather than an error: progress bars live there too, and an
-        # error filter that fills with tqdm output is an error filter nobody uses.
+        # stderr is warning, not error, since progress bars (tqdm) write there too.
         levels = {r["message"]: r["level"] for r in storage.read_logs(PROJECT, run.id)}
         assert levels["to stderr"] == "warning"
 
@@ -309,7 +289,7 @@ def test_a_partial_line_is_buffered_and_flushed_on_close(tmp_path: Path) -> None
     print("half ", end="")
     print("a line", end="")
 
-    # Nothing yet: a record is a line, and this line is not finished.
+    # Nothing yet; the line isn't finished.
     assert [r["message"] for r in storage.read_logs(PROJECT, run.id)] == []
 
     run.finish()
@@ -317,8 +297,7 @@ def test_a_partial_line_is_buffered_and_flushed_on_close(tmp_path: Path) -> None
 
 
 def test_a_progress_bar_records_only_what_the_terminal_shows(tmp_path: Path) -> None:
-    """A carriage return overwrites the line in place, so the intermediate frames were
-    never visible and must not each become a record."""
+    """Frames overwritten by \\r are not recorded, only the final line."""
     storage = Storage(tmp_path)
     run = start(tmp_path)
     for percent in (10, 50, 100):
@@ -331,8 +310,7 @@ def test_a_progress_bar_records_only_what_the_terminal_shows(tmp_path: Path) -> 
 
 
 def test_the_tee_survives_bytes_and_objects(tmp_path: Path) -> None:
-    """A library writing bytes to a text stream is somebody else's bug, and a tee that
-    turned it into a crash inside ``print`` would be this module's."""
+    """Bytes or odd objects written by a library must not crash the tee."""
     storage = Storage(tmp_path)
     writer = LogWriter(storage, PROJECT, "tee_run", start_time=time.time())
     storage.create_run(PROJECT, "tee_run", {"created_at": "2026-08-13T10:00:00+05:30"})
@@ -352,7 +330,7 @@ def test_the_tee_survives_bytes_and_objects(tmp_path: Path) -> None:
 
 
 def test_the_tee_delegates_what_it_does_not_implement(tmp_path: Path) -> None:
-    """``isatty`` and ``encoding`` decide whether a progress bar draws itself at all."""
+    """Progress bars check isatty/encoding, so those must pass through."""
     storage = Storage(tmp_path)
     writer = LogWriter(storage, PROJECT, "attr_run", start_time=time.time())
     tee = StreamTee(io.StringIO(), writer)
@@ -373,9 +351,8 @@ def test_logging_calls_are_captured(tmp_path: Path) -> None:
     storage = Storage(tmp_path)
     root = logging.getLogger()
     previous = root.level
-    # A training script that configured logging is the ordinary case, and pytest has
-    # already configured the root logger for this process. The unconfigured case — where
-    # capture has to raise the level itself — is the subprocess test below.
+    # pytest already configured the root logger; the unconfigured case is tested in a
+    # subprocess below.
     root.setLevel(logging.INFO)
     try:
         with start(tmp_path) as run:
@@ -408,9 +385,7 @@ def test_the_handler_is_removed_and_no_other_handler_is_touched(tmp_path: Path) 
 
 @pytest.mark.slow
 def test_an_unconfigured_logging_info_is_captured(tmp_path: Path) -> None:
-    """In a fresh interpreter the root logger is at WARNING with no handlers, so
-    ``logging.info`` is discarded before any handler sees it. Capture raises the level —
-    and only in that case."""
+    """Fresh root logger is at WARNING, so capture lowers it to INFO (only in that case)."""
     result = run_child(
         tmp_path,
         """
@@ -452,8 +427,7 @@ def test_the_budget_truncates_and_records_that_it_did(tmp_path: Path) -> None:
 
 
 def test_the_budget_is_never_silent(tmp_path: Path) -> None:
-    """A log that ends part-way through with no explanation is read as the end of the run,
-    which is a worse failure than no log at all."""
+    """Truncation always writes a notice so a cut-off log isn't mistaken for the run ending."""
     storage = Storage(tmp_path)
     writer = LogWriter(storage, PROJECT, "budget_run", start_time=time.time(), max_bytes=0)
     storage.create_run(PROJECT, "budget_run", {"created_at": "2026-08-13T10:00:00+05:30"})
@@ -497,9 +471,8 @@ def test_the_streams_are_restored_after_an_exception(tmp_path: Path) -> None:
     assert "before the failure" in [r["message"] for r in records]
     assert storage.read_run(PROJECT, run.id)["status"] == "failed"
 
-    # The traceback is the most useful thing a failed run can hold, and a `with` block
-    # whose exception the caller catches never reaches the excepthook — so the context
-    # manager has to record it itself, before finish() closes the log.
+    # A caught exception never hits the excepthook, so the context manager logs the
+    # traceback itself before finish() closes the log.
     crash = records[-1]
     assert crash["level"] == "error"
     assert crash["source"] == "stderr"
@@ -508,9 +481,7 @@ def test_the_streams_are_restored_after_an_exception(tmp_path: Path) -> None:
 
 
 def test_the_last_partial_line_is_recorded_before_the_traceback(tmp_path: Path) -> None:
-    """A ``print`` with no newline is very often the last thing a crashing script wrote.
-    It is not a record until the line ends, and the crash is what ends it — so the flush
-    has to happen before the traceback is written, not when the streams come down."""
+    """A pending partial line is flushed before the traceback is written."""
     storage = Storage(tmp_path)
     with pytest.raises(ValueError):
         with start(tmp_path, run_id="ordering_run") as run:
@@ -523,8 +494,7 @@ def test_the_last_partial_line_is_recorded_before_the_traceback(tmp_path: Path) 
 
 
 def test_two_sequential_runs_do_not_corrupt_stdout(tmp_path: Path, capsys) -> None:
-    """The failure this prevents is a nested wrap: the second run tees the first run's tee,
-    and unwinding restores a stale object that writes into a finished run."""
+    """The second run must wrap the real stdout, not the first run's tee."""
     storage = Storage(tmp_path)
     stdout = sys.stdout
 
@@ -557,7 +527,7 @@ def test_installation_is_idempotent(tmp_path: Path) -> None:
 
     again()
     assert sys.stdout is tee.stream
-    # And the uninstall the run holds is now a no-op rather than a second restore.
+    # The run's own uninstall is now a no-op.
     run.finish()
     assert sys.stdout is tee.stream
 
@@ -571,7 +541,7 @@ def test_capture_can_be_turned_off_entirely(tmp_path: Path, capsys) -> None:
         assert sys.stdout is stdout
         assert logging.getLogger().handlers == root_handlers
         print("not captured")
-        # log_text still works: it is an explicit call, not a side effect of a flag.
+        # log_text is explicit, so it still works.
         run.log_text("captured on purpose", level="warning")
 
         messages = [r["message"] for r in storage.read_logs(PROJECT, run.id)]
@@ -589,8 +559,7 @@ def test_log_text_refuses_a_finished_run(tmp_path: Path) -> None:
 
 @pytest.mark.slow
 def test_an_unhandled_exception_restores_the_streams_in_a_real_process(tmp_path: Path) -> None:
-    """The excepthook path, observed where it can be observed: the traceback must still
-    reach the terminal, and the run must still hold what was printed before the crash."""
+    """Excepthook path: traceback reaches the terminal and the log keeps earlier output."""
     result = run_child(
         tmp_path,
         """

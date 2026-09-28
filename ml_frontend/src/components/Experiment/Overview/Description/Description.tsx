@@ -38,9 +38,8 @@ const Description = ({ description, experimentId, onEdit }: DescriptionProps) =>
         headers: {
           "Content-Type": "application/json",
         },
-        // An empty string is a legitimate value, not a no-op: the server drops
-        // the stored description and the experiment falls back to the one
-        // derived from its first run's notes (GAPS M3).
+        // An empty string clears the stored description; the server then falls back to
+        // the first run's notes.
         body: JSON.stringify({ description: editedDescription }),
       });
       if (!res.ok) throw new Error(`Request failed with ${res.status}`);
@@ -48,9 +47,7 @@ const Description = ({ description, experimentId, onEdit }: DescriptionProps) =>
       if (onEdit) onEdit(editedDescription);
       setIsEditing(false);
     } catch (err) {
-      // GAPS N20: this used to be an alert(), which blocks the page and cannot
-      // be styled or read by the surrounding layout. The editor stays open so
-      // the text the user typed is not lost.
+      // Show the error inline and keep the editor open so the typed text isn't lost.
       setSaveError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSaving(false);

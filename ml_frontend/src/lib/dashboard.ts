@@ -2,11 +2,8 @@ import { useSyncExternalStore } from "react";
 import { apiFetch } from "./api";
 
 /**
- * `GET /api/dashboard`, fetched once and shared.
- *
- * The sidebar's experiment tree and the top bar's archive count both read it, and so does
- * the dashboard page. One request serves all three; `refreshDashboard()` re-reads it after a
- * write that changes what it reports (a renamed run, an edited description).
+ * `GET /api/dashboard`, fetched once and shared by the sidebar, top bar and dashboard page.
+ * Call `refreshDashboard()` after a write that changes it.
  */
 export interface DashboardRun {
   _id: string;

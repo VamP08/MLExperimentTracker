@@ -1,6 +1,4 @@
-/* Every class here is prefixed `provenance-`. Class names in this project are global and
-   already collide across component files, so a bare `.row` would restyle somebody else's
-   panel the moment both are on the page. */
+/* Prefixed `provenance-` because class names are global and a bare `.row` would clash. */
 
 .provenance-error {
   font-size: 13.5px;
@@ -71,7 +69,7 @@
   min-width: 180px;
 }
 
-/* Long enough to compare by eye; the full digest is in the cell's title. */
+/* Short digest; the full one is in the title. */
 .provenance-digest {
   max-width: 220px;
   white-space: nowrap;

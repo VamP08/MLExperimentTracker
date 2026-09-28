@@ -8,13 +8,11 @@ import Dashboard from "./pages/Dashboard/Dashboard"
 import Experiment from "./pages/Experiment/Experiment"
 import Runs from "./pages/Runs/Runs"
 import Settings from "./pages/Settings/Settings"
-// `false` in the normal build, and Vite substitutes the literal it is defined from, so the
-// banner below folds away with it rather than shipping in the bundle the wheel packages.
+// false outside the demo build. Vite inlines it, so the banner is dropped from the normal bundle.
 import { IS_DEMO } from "./lib/api"
 import "./App.css"
 
-// The main pane, not the window, is what scrolls, so the browser never resets it between
-// pages: without this a link clicked halfway down one page opens the next one halfway down.
+// The main pane scrolls, not the window, so the browser won't reset it on navigation.
 const ScrollReset = () => {
   const { pathname } = useLocation()
   useEffect(() => {
@@ -36,18 +34,12 @@ const RunsWrapper = () => {
 
 function App() {
   return (
-    /*
-     * BASE_URL follows `base` in vite.config.ts: "/" for both the normal build, which
-     * the Python server serves from its root, and the demo, which Render serves from its
-     * own subdomain root. It is wired anyway so that a host publishing under a subpath
-     * needs one constant changed and not a hunt through the router.
-     */
+    // BASE_URL comes from `base` in vite.config.ts ("/" for both builds today).
     <Router basename={import.meta.env.BASE_URL}>
       <ScrollReset />
       <div className="app">
         {IS_DEMO && <DemoBanner />}
-        {/* The rail stays fixed and only the main pane scrolls, so navigation never leaves
-            the screen however long a run's log is. */}
+        {/* Rail stays fixed; only the main pane scrolls. */}
         <div className="shell">
           <Sidebar />
           <main className="main" id="main">

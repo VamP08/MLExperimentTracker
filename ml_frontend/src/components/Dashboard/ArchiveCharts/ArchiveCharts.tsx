@@ -4,9 +4,9 @@ import "./ArchiveCharts.css";
 
 interface ArchiveChartsProps {
   experiments: DashboardExperiment[];
-  /** Each experiment's position in the full list, so its colour survives filtering. */
+  /** Index of each experiment in the full list, so colours survive filtering. */
   colorIndex: Map<string, number>;
-  /** Run durations in seconds by experiment id, from the comparison endpoint; absent while loading. */
+  /** Run durations in seconds by experiment id. Undefined while loading. */
   durations: Map<string, number[]> | null;
   uiStatus: (state: string | undefined) => string;
 }
@@ -24,7 +24,7 @@ function dayKey(iso: string): string | null {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** The archive at a glance: when runs happened and how they ended, who succeeds, how long runs take. */
+/** Archive overview: runs over time by outcome, success rates, run durations. */
 const ArchiveCharts = ({ experiments, colorIndex, durations, uiStatus }: ArchiveChartsProps) => {
   // Runs per day, stacked by outcome.
   const days = new Map<string, Record<string, number>>();
@@ -50,7 +50,7 @@ const ArchiveCharts = ({ experiments, colorIndex, durations, uiStatus }: Archive
   const maxDur = Math.max(1, ...allDur);
   const inMinutes = maxDur >= 120;
   const unit = inMinutes ? 60 : 1;
-  // Round numbers on the axis: 0 · 5 · 10, not a raw midpoint of the longest run.
+  // Round numbers on the axis (0, 5, 10) instead of the raw max.
   const durAxis = niceAxis(0, maxDur / unit);
   const durX = (sec: number) => 14 + (sec / unit / durAxis.hi) * 272;
   const lane = experiments.length ? 130 / experiments.length : 0;

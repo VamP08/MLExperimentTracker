@@ -1,33 +1,7 @@
-"""Does this run's world still match what was recorded?
+"""Check whether the environment recorded in ``provenance.json`` still holds here.
 
-``provenance.json`` records the commit, the uncommitted diff, the interpreter, the
-platform, the resolved package set and the dataset digests that a run was executed
-against. This module asks, field by field, whether each of those is still true here — and
-answers in three states rather than two.
-
-**The third state is the whole point.** A pass/fail verifier has to guess when it cannot
-answer, and every guess it makes is wrong in the direction that destroys the feature: a
-missing ``git`` binary reported as "drifted" teaches the user that drift means nothing,
-and reported as "reproducible" teaches them that reproducible means nothing. So
-:class:`CheckStatus` has ``UNKNOWN``, and the rule behind every branch below is that a
-check may only say ``DRIFT`` when this module actually asked the question and got an
-answer that differs. Not knowing is never drift.
-
-Three consequences of that rule are worth stating because they look like omissions:
-
-- **A claim the manifest never made produces no check at all.** A repository with no
-  origin is not "unverified remote", it is a repository whose manifest recorded no remote,
-  so there is nothing to compare and no check is emitted. Emitting an ``UNKNOWN`` for every
-  field a capture legitimately left empty would make every honest run unverifiable.
-- **The patch check accepts two different truths.** ``git apply --check`` succeeds against
-  a clean checkout of the base commit, and fails against the very tree the patch was taken
-  from — because those changes are already there. Both are the recorded world. So the
-  patch is tried forwards and then in reverse, and either one means the uncommitted work is
-  intact.
-- **An OS patch level is not drift.** ``platform.release`` moves whenever the machine takes
-  an update and moving it changes nothing about a model, so it is reported in the detail of
-  the ``platform.system`` check rather than as a check that can fail. ``system`` and
-  ``machine`` — a different OS, a different architecture — are drift.
+Each check is OK, DRIFT or UNKNOWN. DRIFT only when we asked and got a different answer;
+not being able to ask is UNKNOWN. Fields the manifest left empty produce no check.
 """
 
 from __future__ import annotations
@@ -63,24 +37,20 @@ __all__ = [
     "verify",
 ]
 
-#: ``git apply --check`` reads a patch this process already holds in memory and touches no
-#: network, so a long budget only buys a hang. Longer than the metadata reads in
-#: ``provenance.py`` because the check does stat every path the patch names.
+# Local only, no network. Longer than provenance.py's git timeout since it stats every
+# path in the patch.
 _APPLY_TIMEOUT: float = 60.0
 
-#: How many names a drift detail spells out before it summarises the rest. A package
-#: comparison that prints four hundred names is a wall nobody reads; the count carries the
-#: magnitude and the names carry the shape.
+# Names listed in a drift detail before "and N more".
 _NAMES_SHOWN: int = 5
 
 _NORMALISE = re.compile(r"[-_.]+")
 
 
 class CheckStatus(str, Enum):
-    """``UNKNOWN`` is not a soft ``DRIFT``. It means the question was not answered.
+    """Result of one check. ``UNKNOWN`` means the question couldn't be answered.
 
-    Inherits from :class:`str` so a status can be compared against a raw string and written
-    into JSON without unwrapping, matching :class:`~mlexperimenttracker.contract.RunState`.
+    A ``str`` enum, like ``RunState``, so it compares to and serialises as a plain string.
     """
 
     OK = "ok"
@@ -89,9 +59,7 @@ class CheckStatus(str, Enum):
 
 
 class Verdict(str, Enum):
-    """The one-word summary. ``DRIFTED`` outranks ``UNVERIFIABLE`` deliberately: a report
-    holding one established difference and one unanswered question is a report about a
-    difference, and burying it under "unverifiable" would hide the finding."""
+    """Overall result. Any DRIFT makes it ``DRIFTED``, even if other checks are UNKNOWN."""
 
     REPRODUCIBLE = "reproducible"
     DRIFTED = "drifted"
@@ -100,12 +68,9 @@ class Verdict(str, Enum):
 
 @dataclass(frozen=True)
 class Check:
-    """One question, its answer, and both sides of the comparison.
+    """One check: status, recorded vs current value, and a human-readable detail.
 
-    ``expected`` and ``actual`` are the machine-readable halves — a commit against a
-    commit, a version against a version — and ``detail`` is the sentence a human reads.
-    Both are populated even when the status is ``OK``, because "verified against what?" is
-    the first thing anybody asks of a green result.
+    ``expected``/``actual`` are filled in even on ``OK``.
     """
 
     name: str
@@ -126,12 +91,7 @@ class Check:
 
 @dataclass(frozen=True)
 class VerifyReport:
-    """Every check plus the verdict derived from them.
-
-    Frozen, and the verdict is computed once at construction time by :func:`verify` rather
-    than derived on access, so a report cannot be handed around in a state where its
-    verdict and its checks disagree.
-    """
+    """All checks plus the verdict, which :func:`verify` computes once at construction."""
 
     run_id: str
     project: str
@@ -139,8 +99,7 @@ class VerifyReport:
     verdict: Verdict = Verdict.UNVERIFIABLE
 
     def to_dict(self) -> dict[str, Any]:
-        """The API shape. ``summary`` is counts rather than a second opinion — a caller
-        rendering a badge needs the magnitude without walking the list."""
+        """API shape. ``summary`` is a count per status."""
         return {
             "run_id": self.run_id,
             "project": self.project,
@@ -153,8 +112,7 @@ class VerifyReport:
         }
 
     def by_name(self, name: str) -> Check | None:
-        """The check called ``name``, or ``None``. Reports are short and a caller that
-        wants one field should not have to filter a list to find out it is absent."""
+        """The check called ``name``, or ``None``."""
         for check in self.checks:
             if check.name == name:
                 return check
@@ -169,22 +127,11 @@ def verify(
     cwd: str | Path | None = None,
     rehash_datasets: bool = True,
 ) -> VerifyReport:
-    """Compare the recorded world against this one.
+    """Compare a run's recorded provenance against the current environment.
 
-    ``cwd`` is the directory whose repository is inspected. When it is omitted the
-    manifest's own ``command.cwd`` is used if that directory still exists, and the process
-    working directory otherwise — a run knows where it was executed, and verifying the
-    wrong repository produces a confident answer to a question nobody asked. The fallback
-    order is reported in the ``git.repository`` check so the answer is never anonymous.
-
-    ``rehash_datasets`` re-reads every recorded dataset. It defaults to on because a
-    dataset replaced in place is the drift a commit hash cannot see and the reason this
-    feature exists — but hashing is the one part of verification that can take minutes, so
-    a caller with a large corpus and a fast answer to give can turn it off.
-
-    Never raises for a run it cannot verify: an absent manifest, an unreadable repository
-    and a dataset path that has moved are all ordinary states of the world, and each
-    produces a report rather than an exception.
+    ``cwd`` is the repo to inspect; defaults to the manifest's ``command.cwd`` if it still
+    exists, else the process cwd. ``rehash_datasets=False`` skips dataset hashing, which
+    can be slow. Doesn't raise for unverifiable runs; those get UNKNOWN checks instead.
     """
     manifest_dict = storage.read_provenance(project, run_id)
     if manifest_dict is None:
@@ -297,12 +244,7 @@ def _git_checks(
 
 
 def _remote_check(git: GitState, repo: Path) -> Check | None:
-    """Only when the manifest recorded one: a repository with no origin makes no claim.
-
-    Comparing origin URLs is what catches the mistake nothing else catches — verifying
-    against a *different* repository that happens to have the same branch names, where
-    every other check would be answered confidently and wrongly.
-    """
+    """Compare origin URLs, if one was recorded. Catches verifying against the wrong repo."""
     if not git.remote:
         return None
     current = _first_line(_stdout(_git(repo, "config", "--get", "remote.origin.url")))
@@ -332,13 +274,7 @@ def _remote_check(git: GitState, repo: Path) -> Check | None:
 
 
 def _commit_check(commit: str, repo: Path) -> Check:
-    """Does the recorded commit still exist *here*?
-
-    A missing object is drift and not merely unknown: the question was asked and the
-    repository answered. The detail carries the caveat that matters — the commit may be
-    alive on a remote and one fetch away — because the fix differs completely between
-    "never pushed and now garbage collected" and "not fetched yet".
-    """
+    """Is the recorded commit in this repo? Missing is DRIFT (it may just need a fetch)."""
     result = _git(repo, "cat-file", "-e", f"{commit}^{{commit}}")
     if result is not None and result.returncode == 0:
         return Check(
@@ -395,13 +331,7 @@ def _head_check(commit: str, head: str | None) -> Check:
 
 
 def _worktree_check(git: GitState, dirty_now: bool, known: bool) -> Check:
-    """Clean-versus-dirty only. Whether the *same* dirt is present is the patch check.
-
-    Reporting "dirty, as recorded" as ``OK`` is not a loophole: this check answers one
-    question and says which. A run captured dirty with no patch — ``capture_diff`` off —
-    genuinely cannot be checked any further, and the detail says that rather than implying
-    the content was compared.
-    """
+    """Clean vs dirty only; whether the changes match is the patch check's job."""
     if not known:
         return Check(
             name="git.worktree",
@@ -436,18 +366,11 @@ def _patch_check(
     repo: Path,
     head: str | None,
 ) -> Check | None:
-    """Is the recorded uncommitted work still intact?
+    """Is the recorded uncommitted diff still intact?
 
-    Tried forwards and then in reverse, because both directions are the same truth seen
-    from different trees: forwards succeeds against a clean checkout of the base commit,
-    reverse succeeds against the tree the patch was captured from, where the changes are
-    already present. A patch that does neither has diverged — but only if its base commit
-    is what is checked out. Against some other commit, a failure says nothing about the
-    patch, so it is ``UNKNOWN``.
-
-    Both attempts run under the repository's own ``core.autocrlf`` rather than an override
-    — see :func:`_apply_check`, where getting this backwards makes a freshly captured run
-    verify as DRIFTED on any stock Windows checkout.
+    Tried forwards (clean checkout of the base commit) then in reverse (changes already
+    in the tree). Neither applying is DRIFT only if the base commit is checked out;
+    otherwise UNKNOWN.
     """
     if not git.diff_file:
         return None
@@ -541,12 +464,9 @@ def _patch_check(
 
 
 def repository_root(directory: str | Path) -> tuple[Path | None, str | None]:
-    """``(toplevel, None)`` for a work tree, ``(None, reason)`` for anything else.
+    """``(toplevel, None)`` for a git work tree, else ``(None, reason)``.
 
-    Public because :mod:`~mlexperimenttracker.replay` asks the same question of the same
-    manifest and the answer must be the same one. The toplevel rather than the directory
-    itself, because a patch names paths relative to the root of the repository and
-    ``git apply`` resolves them against the process working directory.
+    Also used by replay. Returns the toplevel since patch paths are relative to it.
     """
     target = Path(directory)
     if shutil.which("git") is None:
@@ -565,7 +485,7 @@ def repository_root(directory: str | Path) -> tuple[Path | None, str | None]:
 
 
 def _dirty(repo: Path) -> tuple[bool, bool]:
-    """``(dirty, answered)``. Untracked files count, exactly as they do at capture."""
+    """``(dirty, answered)``. Untracked files count, same as at capture."""
     result = _git(repo, "status", "--porcelain")
     if result is None or result.returncode != 0:
         return False, False
@@ -573,24 +493,12 @@ def _dirty(repo: Path) -> tuple[bool, bool]:
 
 
 def _apply_check(repo: Path, patch: bytes, *, reverse: bool) -> int | None:
-    """``git apply --check`` over stdin. ``None`` when git could not be run at all.
+    """``git apply --check`` with the patch on stdin. ``None`` if git couldn't be run.
 
-    The patch is piped rather than written to a temporary file because :class:`Storage` is
-    the only thing in this package that opens a file, and a check has no business creating
-    one. ``--binary`` because the captured diff carries literal binary hunks.
+    Piped, not a temp file. ``--binary`` because the diff has binary hunks.
 
-    **``core.autocrlf`` is deliberately not overridden here**, which is the opposite of what
-    :mod:`~mlexperimenttracker.replay` does, and the asymmetry is the point: override the
-    line-ending conversion only when you own both sides of it. Replay *creates* the worktree
-    it applies into, so it pins the checkout and the apply to the same setting and the two
-    cannot disagree. Verification is handed a worktree somebody else checked out, under
-    configuration this module did not choose — and on Windows that configuration is
-    ``core.autocrlf=true`` by system default, so the files on disk are CRLF while the patch,
-    being repository content, is LF. Forcing the conversion off there tells git the working
-    tree is verbatim repository content when it is not, and an intact patch is refused: the
-    run verifies as DRIFTED one second after capture, naming the uncommitted work as the
-    thing that changed. Left alone, git applies the repository's own conversion on both
-    sides and the comparison is the one the user's checkout actually implies.
+    Unlike replay, don't override ``core.autocrlf``: replay owns its worktree, we don't.
+    On Windows (autocrlf=true) forcing it off rejects an intact patch as DRIFT.
     """
     args = ["git", "apply", "--check", "--binary"]
     if reverse:
@@ -613,13 +521,7 @@ def _apply_check(repo: Path, patch: bytes, *, reverse: bool) -> int | None:
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
-    """One git command, or ``None`` if it could not be run.
-
-    Deliberately the same invocation policy as capture — explicit ``cwd``, a timeout,
-    ``check=False``, never a shell — by calling the same function rather than by
-    reimplementing it. A verifier that inspected a repository differently from the way it
-    was captured would be comparing two things it measured with two rulers.
-    """
+    """Run one git command via capture's own runner, or ``None`` if it couldn't run."""
     try:
         return _run_git(list(args), cwd)
     except _GitUnavailable:
@@ -668,13 +570,9 @@ def _python_checks(manifest: Provenance) -> list[Check]:
 
 
 def _platform_checks(manifest: Provenance) -> list[Check]:
-    """``system`` and ``machine`` only.
+    """Check ``system`` and ``machine`` only.
 
-    ``release`` and ``processor`` are recorded and are worth reading, but they move for
-    reasons that do not change a result — a security update, a CPU string reported
-    differently by two kernels — so they are reported inside the ``platform.system``
-    detail rather than as checks that can fail. A check that cries wolf is a check people
-    learn to ignore, and the ones that matter are in the same list.
+    An OS release change moves with routine updates, so it goes in the detail, not DRIFT.
     """
     checks: list[Check] = []
     recorded_system = _text(manifest.platform.get("system"))
@@ -714,12 +612,9 @@ def _platform_checks(manifest: Provenance) -> list[Check]:
 
 
 def _package_checks(manifest: Provenance) -> list[Check]:
-    """Added, removed and changed, with the count first and the names after.
+    """Added, removed and changed packages.
 
-    Names are compared PEP 503-normalised — ``ruamel.yaml``, ``ruamel-yaml`` and
-    ``ruamel_yaml`` are one distribution — because otherwise a manifest written by one
-    tool and read by another reports the same package as both added and removed. The
-    *recorded* spelling is what gets printed, since that is what the user would search for.
+    Names are PEP 503-normalised for comparison; the recorded spelling is shown.
     """
     if not manifest.packages:
         return []
@@ -766,12 +661,10 @@ def _package_checks(manifest: Provenance) -> list[Check]:
 
 
 def _dataset_checks(manifest: Provenance, directory: Path) -> list[Check]:
-    """Re-hash each recorded dataset. A path that is not there is ``UNKNOWN``, not drift.
+    """Re-hash each recorded dataset.
 
-    Dataset paths are recorded as the user gave them, which is usually relative, so a
-    missing file is at least as likely to mean "verified from a different directory" as
-    "the data was deleted". Saying ``DRIFT`` there would be the exact failure this module
-    is built to avoid: an accusation dressed as a measurement.
+    A missing path is UNKNOWN, not DRIFT: paths are often relative, so we may just be in
+    the wrong directory.
     """
     checks: list[Check] = []
     for entry in manifest.datasets:
@@ -862,12 +755,7 @@ def _verdict(checks: list[Check]) -> Verdict:
 
 
 def _guard(name: str, produce: Any) -> list[Check]:
-    """Run one group of checks, or turn its failure into an ``UNKNOWN`` for that group.
-
-    A verifier that dies half way through tells the user nothing about the half it did
-    complete. The groups are independent by construction, so a failure in one is a gap in
-    the report rather than a reason to discard it.
-    """
+    """Run one group of checks; if it raises, report a single UNKNOWN for that group."""
     try:
         return list(produce())
     except Exception as exc:  # pragma: no cover - defensive: each group swallows its own

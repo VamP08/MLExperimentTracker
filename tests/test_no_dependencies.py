@@ -1,14 +1,7 @@
 """The base install must import and run with no third-party package available.
 
-This is the property that makes the tracker free to add to a training script, and it is
-the easiest one to lose: a single convenience import of ``requests`` or ``pydantic`` at the
-top of a module breaks it silently, because the development environment has every optional
-extra installed and nothing fails locally.
-
-Checking imports by reading the source is not enough — a transitive import three modules
-deep would pass that check. So the property is tested the only way that actually holds it:
-a subprocess where the third-party packages are made genuinely unimportable, driving a full
-run lifecycle end to end.
+Dev environments have every extra installed, so this runs a full run lifecycle in a
+subprocess where third-party imports are blocked. That also catches transitive imports.
 """
 
 from __future__ import annotations
@@ -20,9 +13,7 @@ from pathlib import Path
 
 import pytest
 
-#: Everything the package may only use behind an optional extra. fastapi/uvicorn are the
-#: server extra, psutil/nvidia-ml-py the system extra; the rest are their transitive
-#: dependencies, blocked too so an accidental import cannot be satisfied indirectly.
+# Optional extras (server, system) plus their transitive deps.
 BLOCKED = (
     "fastapi",
     "starlette",

@@ -2,11 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import TopBar from "../../TopBar/TopBar";
 import "./NotFound.css";
 
-/**
- * Catch-all view for unmatched routes (GAPS N15). Without it an unknown URL renders the
- * sidebar beside an empty main area, which is indistinguishable from a page that failed
- * to load.
- */
+/** Catch-all for unknown routes, so they don't look like a page that failed to load. */
 const NotFound = () => {
   const { pathname } = useLocation();
 

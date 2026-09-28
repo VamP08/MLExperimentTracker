@@ -133,7 +133,7 @@ export const ParamScatter = ({ metric, ranked }: MetricProps) => {
   const xs = pts.map((p) => p.x);
   const xMin = Math.min(...xs);
   const xMax = Math.max(...xs);
-  // Learning rates and similar span decades; a linear axis would pile them against one edge.
+  // Learning rates and the like span decades, so switch to a log axis.
   const log = xMin > 0 && xMax / xMin >= 20;
   const tx = (v: number) => (log ? Math.log10(v) : v);
   const xAxis = log
@@ -148,7 +148,7 @@ export const ParamScatter = ({ metric, ranked }: MetricProps) => {
   const sxTick = (t: number) => SP.l + ((t - xAxis.lo) / xSpan) * (SW - SP.l - SP.r);
   const sy = (v: number) => SP.t + (1 - (v - yAxis.lo) / (yAxis.hi - yAxis.lo || 1)) * (SH - SP.t - SP.b);
   const bestId = ranked[0]?.run.id;
-  // Small parameters read in one notation across the axis: 0 · 2e-5 · 4e-5, not 0.00000 · 2.0e-5.
+  // Small values use one notation across the axis: 0, 2e-5, 4e-5.
   const xStep = log ? 1 : (xAxis as ReturnType<typeof niceAxis>).step;
   const xLabel = (t: number) => (t === 0 ? "0" : xStep < 1e-3 ? Number(t.toPrecision(3)).toExponential() : tickLabel(t, xStep));
 

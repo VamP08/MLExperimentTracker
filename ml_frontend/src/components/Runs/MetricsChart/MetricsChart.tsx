@@ -12,7 +12,7 @@ interface MetricDataPoint {
 interface MetricTimeSeries {
   name: string;
   data: MetricDataPoint[];
-  /** Position in the unfiltered list, so a series keeps the colour it has on the overview. */
+  /** Index in the unfiltered list, so colours match the overview. */
   index: number;
   pts: { x: number; y: number }[];
 }

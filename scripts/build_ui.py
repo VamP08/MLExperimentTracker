@@ -1,18 +1,7 @@
-"""Build the React frontend and place it inside the Python package.
+"""Build the React frontend and copy it into src/mlexperimenttracker/server/static.
 
-The single-command install story depends on the server having a UI to serve, and the UI is
-a Vite build that Python cannot produce. This script is the seam between the two: run it
-before building a wheel, and the bundle ships inside the distribution. It is the only
-thing that writes ``src/mlexperimenttracker/server/static``, which is why that directory is
-gitignored — it is output, not source, and a checked-in copy would go stale silently.
-
-Run it from anywhere:
-
-    python scripts/build_ui.py
-
-It needs Node and npm. It is idempotent: every run replaces the previous bundle wholesale
-rather than merging into it, so a file deleted from the frontend does not survive in the
-package.
+Run before building a wheel: python scripts/build_ui.py (needs Node and npm).
+The static dir is build output and gitignored. Each run replaces the whole bundle.
 """
 
 from __future__ import annotations
@@ -29,8 +18,7 @@ FRONTEND_DIR = REPO_ROOT / "ml_frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
 STATIC_DIR = REPO_ROOT / "src" / "mlexperimenttracker" / "server" / "static"
 
-#: Written next to the destination and renamed into place, so a failure part-way through
-#: the copy leaves the previous bundle intact rather than half of two.
+# Copy here first, then rename into place, so a failed copy leaves the old bundle intact.
 STAGING_DIR = STATIC_DIR.with_name(STATIC_DIR.name + ".incoming")
 
 NODE_HINT = (
@@ -90,12 +78,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 def _install(npm: str) -> int:
-    """``npm ci`` first, ``npm install`` as the fallback.
+    """Try ``npm ci``, fall back to ``npm install``.
 
-    ``ci`` is the right default — it installs exactly the lockfile and it is faster — but
-    it refuses to run when the lockfile is absent or out of step with ``package.json``,
-    which is a normal state for a repository mid-change. Falling back keeps the script
-    usable then, at the cost of possibly resolving newer versions than the lockfile pins.
+    ``ci`` fails when the lockfile is missing or out of sync with package.json.
     """
     if (FRONTEND_DIR / "package-lock.json").is_file():
         if _run([npm, "ci"], "installing frontend dependencies (npm ci)") == 0:
@@ -105,8 +90,7 @@ def _install(npm: str) -> int:
 
 
 def _run(command: list[str], description: str) -> int:
-    # Flushed explicitly: stdout is block-buffered when this script is piped or captured,
-    # and a header that arrives after the output it introduces is worse than no header.
+    # Flush so the header prints before npm's output when stdout is piped.
     print(f"> {description}", flush=True)
     print(f"  {' '.join(command)}  (in {FRONTEND_DIR})", flush=True)
     try:
@@ -118,8 +102,7 @@ def _run(command: list[str], description: str) -> int:
 
 
 def _find_npm() -> str | None:
-    """``shutil.which`` resolves the ``.cmd`` shim on Windows, which is what npm actually
-    is there; the bare name is only ever right on POSIX."""
+    """On Windows npm is a ``.cmd`` shim, so try both names."""
     for name in ("npm", "npm.cmd"):
         found = shutil.which(name)
         if found:
@@ -128,12 +111,9 @@ def _find_npm() -> str | None:
 
 
 def _install_bundle() -> None:
-    """Replace the packaged bundle with the freshly built one.
+    """Replace the packaged bundle with the new build.
 
-    Staged and swapped rather than copied over the top: an interrupted copy would
-    otherwise leave the package holding a mixture of two builds, which produces a UI that
-    loads and then fails on a hashed asset that is no longer there — a much worse failure
-    than a missing directory.
+    Staged and swapped so an interrupted copy can't leave a mix of two builds.
     """
     if STAGING_DIR.exists():
         shutil.rmtree(STAGING_DIR)
