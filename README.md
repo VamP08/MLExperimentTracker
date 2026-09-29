@@ -9,14 +9,14 @@ reads that directory.
 **Live demo:** <https://mlexperimenttracker-demo.onrender.com> (a static build with a
 snapshot of real runs, so edits aren't saved).
 
-![Dashboard](.github/screenshots/dashboard.png)
+![Dashboard](https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/screenshots/dashboard.png)
 
-![Experiment overview](.github/screenshots/experiment.png)
+![Experiment overview](https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/screenshots/experiment.png)
 
 ## Quick start
 
 ```bash
-pip install -e ".[server]"     # not on PyPI yet, install from a clone
+pip install "mlexperimenttracker[server]"
 mlexp demo                     # generate some example runs
 mlexp ui                       # dashboard at http://127.0.0.1:5000
 ```
@@ -55,7 +55,7 @@ run.log_feature_importance([{"name": "age", "importance": 0.31}])
 run.log_checkpoint("epoch_10", step=10, path="checkpoints/epoch_10.pt")
 ```
 
-`examples/quickstart.py` is a full tracked training run (logistic regression on synthetic
+`examples/quickstart.py` in the repo is a full tracked training run (logistic regression on synthetic
 data) that only needs the standard library:
 
 ```bash
@@ -189,4 +189,4 @@ the frontend's contract is still pinned now that the Express code is gone.
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](https://github.com/VamP08/MLExperimentTracker/blob/main/LICENSE).

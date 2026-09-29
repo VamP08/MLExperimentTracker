@@ -93,6 +93,7 @@ mlexp = "mlexperimenttracker.cli:main"
 # dependency list a URL entry — which is exactly what happened once here.
 [project.urls]
 Homepage = "https://github.com/VamP08/MLExperimentTracker"
+Demo = "https://mlexperimenttracker-demo.onrender.com"
 Repository = "https://github.com/VamP08/MLExperimentTracker"
 Issues = "https://github.com/VamP08/MLExperimentTracker/issues"
 Changelog = "https://github.com/VamP08/MLExperimentTracker/blob/main/CHANGELOG.md"
