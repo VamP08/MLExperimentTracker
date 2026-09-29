@@ -21,6 +21,10 @@ mlexp demo                     # generate some example runs
 mlexp ui                       # dashboard at http://127.0.0.1:5000
 ```
 
+To track your own training, add the few lines below to your script and run it. Runs are
+saved under `~/.experiment_tracker` (or `EXPERIMENT_STORAGE_PATH`), and they show up in
+`mlexp ui` on refresh.
+
 ## Tracking a run
 
 ```python

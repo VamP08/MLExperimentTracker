@@ -78,17 +78,18 @@ const DemoBanner = () => {
           from the real API{capturedAt ? ` on ${capturedAt}` : ""}, then bundled into the page. Nothing you change
           here is saved.{" "}
           <span className="demo-banner-run">
-            To run it on your own runs: clone{" "}
+            To use it on your own runs:{" "}
+            <code className="demo-banner-code">pip install "mlexperimenttracker[server]"</code>, then{" "}
+            <code className="demo-banner-code">mlexp ui</code>. The{" "}
             <a
               className="demo-banner-link"
               href={REPO_URL}
               target="_blank"
               rel="noreferrer noopener"
             >
-              the repository
-            </a>
-            , then <code className="demo-banner-code">pip install -e ".[server]"</code> and{" "}
-            <code className="demo-banner-code">mlexp ui</code>.
+              README
+            </a>{" "}
+            shows how to log from a training script.
           </span>
         </p>
 
