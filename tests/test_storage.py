@@ -7,6 +7,7 @@ named differently on two pages) so changing the reader breaks a test on purpose.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -190,6 +191,49 @@ def test_traversal_cannot_reach_a_real_run_outside_the_root(tmp_path: Path) -> N
     assert storage.read_run("..", "outside") is None
     assert storage.read_run("../outside", "victim") is None
     assert storage.resolve_within("..", "outside", "victim") is None
+
+
+def _link_out(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks need extra privileges on this platform")
+
+
+def test_a_symlink_out_of_the_root_is_refused(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    write_json(outside / "victim" / contract.METADATA_FILE, {"created_at": "2026-01-01T00:00:00+00:00"})
+    storage = Storage(tmp_path / "root")
+    storage.root.mkdir(parents=True, exist_ok=True)
+    _link_out(storage.root / "proj", outside)
+    assert storage.resolve_within("proj") is None
+    assert storage.resolve_within("proj", "victim") is None
+    assert storage.read_run("proj", "victim") is None
+
+
+def test_a_symlink_inside_the_root_still_resolves(tmp_path: Path) -> None:
+    storage = Storage(tmp_path / "root")
+    (storage.root / "real").mkdir(parents=True)
+    _link_out(storage.root / "alias", storage.root / "real")
+    assert storage.resolve_within("alias") == storage.root / "real"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions are Windows-only")
+def test_a_junction_out_of_the_root_is_refused(tmp_path: Path) -> None:
+    import _winapi
+
+    outside = tmp_path / "outside"
+    (outside / "victim").mkdir(parents=True)
+    storage = Storage(tmp_path / "root")
+    storage.root.mkdir(parents=True, exist_ok=True)
+    _winapi.CreateJunction(str(outside), str(storage.root / "proj"))
+    assert storage.resolve_within("proj", "victim") is None
+
+
+def test_missing_names_still_resolve_under_the_root(storage: Storage) -> None:
+    assert storage.resolve_within("no-such-project", "no-such-run") == (
+        storage.root / "no-such-project" / "no-such-run"
+    )
 
 
 def test_create_run_refuses_an_unaddressable_name(storage: Storage) -> None:

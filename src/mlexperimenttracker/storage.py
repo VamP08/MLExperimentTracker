@@ -12,6 +12,7 @@ import math
 import ntpath
 import os
 import posixpath
+import stat as _stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,9 @@ __all__ = ["Storage", "StorageError"]
 # Per-project file written by PATCH /api/experiment/{id}. Lives beside the run dirs, not in
 # one, so it's not in contract. The SDK never writes it.
 PROJECT_METADATA_FILE = "project_metadata.json"
+
+
+_REPARSE_POINT = getattr(_stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 
 
 class StorageError(Exception):
@@ -97,6 +101,23 @@ class Storage:
             if ntpath.splitdrive(segment)[0]:
                 return None
 
+        # With the checks above, only a symlink or junction can lead outside the root, so a
+        # full resolve() (slow on Windows, and run once per run on every listing) is needed
+        # only when one of the components is a link.
+        target = self.root
+        for segment in segments:
+            target = target / segment
+            try:
+                info = os.lstat(target)
+            except FileNotFoundError:
+                break  # nothing below a missing component can be a link
+            except (OSError, ValueError):
+                return self._resolve_checked(segments)
+            if _stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+                return self._resolve_checked(segments)
+        return Path(self.root, *segments)
+
+    def _resolve_checked(self, segments: tuple[str, ...]) -> Path | None:
         try:
             target = Path(self.root, *segments).resolve()
         except (OSError, ValueError):

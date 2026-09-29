@@ -184,8 +184,8 @@ the frontend's contract is still pinned now that the Express code is gone.
 - A run's description and display name share one field, so editing one changes both.
 - Artifacts have no stored file path, so they can't be downloaded from the UI.
 - `kill -9` leaves a run showing as running.
-- There's no index or cache. Every dashboard request walks the run folders: about 0.16 s at
-  100 runs, 1 s at 1,000 and 2 s at 3,000 on a Windows laptop (`scripts/bench_storage.py`).
+- There's no index or cache. Every dashboard request walks the run folders: about 0.04 s at
+  100 runs, 0.3 s at 1,000 and 1 s at 3,000 on a Windows laptop (`scripts/bench_storage.py`).
 
 ## Licence
 

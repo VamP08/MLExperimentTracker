@@ -12,6 +12,11 @@ two move at different speeds. Both are listed below.
 
 ## [Unreleased]
 
+### Changed
+
+- Listing runs is about 40% faster. The path containment check now skips a full `resolve()`
+  unless a path component is a symlink or junction, and new tests cover both escaping the root.
+
 ## [0.2.0] - 2026-09-29
 
 Storage format unchanged (1.2).
