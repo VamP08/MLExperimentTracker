@@ -16,6 +16,29 @@ const TITLE = '<title>MLExperimentTracker</title>'
 const DEMO_TITLE = '<title>MLExperimentTracker — static demo</title>'
 
 /**
+ * Link-preview tags, for the public demo only: what LinkedIn, Slack or WhatsApp show when the
+ * demo's URL is pasted, instead of a bare link. The local dashboard has no public URL to
+ * preview, so the normal build does not carry them. The image is the repository's social
+ * preview, served from GitHub so the wheel does not ship a file only the demo uses.
+ */
+const DEMO_URL = 'https://mlexperimenttracker-demo.onrender.com/'
+const PREVIEW_IMAGE = 'https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/social-preview.jpg'
+const PREVIEW_TEXT = 'A local-first ML experiment tracker: runs, comparisons and reproducibility checks, shown from a snapshot of real runs.'
+const LINK_PREVIEW = [
+  `<meta property="og:type" content="website" />`,
+  `<meta property="og:site_name" content="MLExperimentTracker" />`,
+  `<meta property="og:title" content="MLExperimentTracker — experiment tracking you can verify" />`,
+  `<meta property="og:description" content="${PREVIEW_TEXT}" />`,
+  `<meta property="og:url" content="${DEMO_URL}" />`,
+  `<meta property="og:image" content="${PREVIEW_IMAGE}" />`,
+  `<meta property="og:image:width" content="1280" />`,
+  `<meta property="og:image:height" content="640" />`,
+  `<meta property="og:image:alt" content="MLExperimentTracker: experiment tracking you can verify" />`,
+  `<meta name="twitter:card" content="summary_large_image" />`,
+  `<meta name="theme-color" content="#07090d" />`,
+].join('\n    ')
+
+/**
  * The two things the demo build needs that the normal build must not have.
  *
  * 1. `404.html`. GitHub Pages has no SPA rewrite. A deep link such as
@@ -26,7 +49,7 @@ const DEMO_TITLE = '<title>MLExperimentTracker — static demo</title>'
  *    router's `basename` has to match `base`: the router receives the full path.
  *
  * 2. A title that says "demo". The banner in the page says it too, but the banner is
- *    dismissible and the tab label is not.
+ *    dismissible and the tab label is not. The link-preview tags ride in beside it.
  *
  * Both are derived from the real build output rather than written by hand, so they cannot
  * drift from index.html.
@@ -46,7 +69,7 @@ function demoBuild(): Plugin {
               'update TITLE in vite.config.ts so the tab still says this is a demo',
           )
         }
-        return html.replace(TITLE, DEMO_TITLE)
+        return html.replace(TITLE, `${DEMO_TITLE}\n    ${LINK_PREVIEW}`)
       },
     },
 
