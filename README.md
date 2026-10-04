@@ -1,4 +1,9 @@
-# MLExperimentTracker
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/logo/lockup-dark.svg">
+    <img alt="MLExperimentTracker" src="https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/logo/lockup.svg" height="48">
+  </picture>
+</h1>
 
 [![CI](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml/badge.svg)](https://github.com/VamP08/MLExperimentTracker/actions/workflows/ci.yml)
 
@@ -84,6 +89,8 @@ deliberately smaller and aimed at one person's runs on one machine:
 
 ## Provenance, verify and replay
 
+![A run's reproducibility checks in the dashboard: commit, environment and data, eleven of eleven passing](https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/verify.gif)
+
 ```bash
 mlexp provenance <run_id>                # what the run recorded
 mlexp verify <run_id>                    # exit 0 ok, 1 drifted, 2 unverifiable
@@ -109,6 +116,10 @@ treat it as sensitive, or pass `capture_diff=False`.
 - **Output is captured.** `stdout`, `stderr` and the root logger go to `logs.jsonl` while
   the terminal still gets everything. Use `run.log_text()` for explicit lines, and
   `capture_output=False` / `capture_logging=False` to turn capture off.
+
+## How it fits together
+
+![The training script writes run folders; mlexp ui reads them and serves the dashboard; mlexp verify and replay read what each run recorded](https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/architecture.svg)
 
 ## Storage layout
 
@@ -168,7 +179,7 @@ endpoints write to disk.
 ```bash
 pip install -e ".[all]"
 pytest
-ruff check src tests examples
+ruff check src tests examples scripts
 python scripts/build_ui.py        # build the dashboard into the package
 ```
 
