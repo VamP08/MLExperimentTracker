@@ -1,16 +1,10 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-/** The `<title>` in index.html, and what the demo build replaces it with. */
 const TITLE = '<title>MLExperimentTracker</title>'
 const DEMO_TITLE = '<title>MLExperimentTracker — static demo</title>'
 
-/**
- * Link-preview tags, for the public demo only: what LinkedIn, Slack or WhatsApp show when the
- * demo's URL is pasted, instead of a bare link. The local dashboard has no public URL to
- * preview, so the normal build does not carry them. The image is the repository's social
- * preview, served from GitHub so the wheel does not ship a file only the demo uses.
- */
+// Link previews are demo-only; the image is hosted on GitHub so the wheel does not carry it.
 const DEMO_URL = 'https://mlexperimenttracker-demo.onrender.com/'
 const PREVIEW_IMAGE = 'https://raw.githubusercontent.com/VamP08/MLExperimentTracker/main/.github/social-preview.jpg'
 const PREVIEW_TEXT = 'A local-first ML experiment tracker: runs, comparisons and reproducibility checks, shown from a snapshot of real runs.'
@@ -50,32 +44,12 @@ function demoBuild(): Plugin {
   }
 }
 
-/**
- * Path suffixes of the demo-only stylesheets, in the forward-slash form Rollup ids use.
- *
- * Two files: the banner's own rules, and the disabled states for the controls the demo
- * cannot operate. Both are reachable only from `DemoBanner.tsx`.
- */
 const DEMO_ONLY_CSS = [
   '/components/DemoBanner/DemoBanner.css',
   '/demo/demoOnly.css',
 ]
 
-/**
- * Empty the demo-only stylesheets in the normal build.
- *
- * App.tsx renders the banner behind `IS_DEMO`, which folds to `false` outside the demo, so
- * the component's JavaScript is tree-shaken away. Its `import './DemoBanner.css'` is a
- * side-effecting import, though, and side effects survive tree-shaking on principle — so
- * 1.5 kB of rules that can never match anything rode along in the stylesheet the wheel
- * ships. Rollup's `treeshake.moduleSideEffects` does not reach it: Vite accumulates CSS in
- * its own plugin, outside Rollup's tree-shaker. Emptying the files before Vite reads them
- * does, and it is narrow enough to be obviously safe — a fixed list, one build mode.
- *
- * This is also why a demo-only rule belongs in `src/demo/demoOnly.css` rather than beside
- * the component it styles: a `-disabled` rule added to `Logs.css` would ship in the wheel,
- * where nothing can ever match it.
- */
+// CSS imports survive tree-shaking, so demo-only rules would otherwise ship in the wheel.
 function dropDemoOnlyStyles(): Plugin {
   return {
     name: 'mlexp-drop-demo-only-styles',
@@ -89,10 +63,7 @@ function dropDemoOnlyStyles(): Plugin {
   }
 }
 
-// `npm run build:demo` runs `vite build --mode demo`, which loads `.env.demo` and with it
-// VITE_DEMO=1. The mode is read here rather than `process.env` for two reasons: the flag
-// then lives in exactly one file, and this config stays free of Node globals (the frontend
-// has no @types/node, and `tsc -b` type-checks this file).
+// The mode, not process.env: tsc checks this file and the frontend has no @types/node.
 export default defineConfig(({ mode }) => {
   const isDemo = mode === 'demo'
 
@@ -102,10 +73,10 @@ export default defineConfig(({ mode }) => {
       // Force polling so HMR never goes quiet
       watch: {
         usePolling: true,
-        interval: 100,      // check every 100 ms
+        interval: 100,
       },
       hmr: {
-        overlay: true       // still show runtime errors in the browser
+        overlay: true
       },
       proxy: {
         "/api": {
