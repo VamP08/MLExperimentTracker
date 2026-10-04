@@ -31,7 +31,7 @@ METADATA = {
     "notes": "",
     "platform": "Windows-11-10.0.26200-SP0",
     "python_version": "3.13.2",
-    "working_directory": "E:/Work/Live/code/Project/MLExperimentTracker/examples/churn",
+    "working_directory": "D:/experiments/churn",
 }
 
 CONFIG = {
