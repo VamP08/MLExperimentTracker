@@ -29,6 +29,7 @@ const TopBar = ({ crumbs, actions }: TopBarProps) => {
       >
         <FiMenu />
       </button>
+      <img className="topbar-mark" src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
       <Breadcrumbs items={crumbs} />
       <span className="topbar-spacer" />
       {data && (

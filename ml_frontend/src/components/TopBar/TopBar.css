@@ -22,6 +22,13 @@
   display: none;
   margin-left: -8px;
 }
+/* The sidebar carries the mark; when it folds into a drawer, the bar shows it instead. */
+.topbar-mark {
+  display: none;
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
 
 @media (max-width: 900px) {
   .topbar {
@@ -29,6 +36,9 @@
   }
   .topbar-menu {
     display: inline-flex;
+  }
+  .topbar-mark {
+    display: block;
   }
   .topbar-meta {
     display: none;
