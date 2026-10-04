@@ -137,7 +137,7 @@ src = ["src", "tests"]
 # Ruff's defaults plus import sorting and the bugbear checks. Deliberately not the
 # stylistic families: this repository is prose-heavy on purpose, and a linter that argues
 # about how a sentence is wrapped inside a docstring is a linter people stop reading.
-# E501 stays off, as it is by default — line length is the formatter's job.
+# E501 stays off, as it is by default.
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]
 
