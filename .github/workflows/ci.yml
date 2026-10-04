@@ -43,7 +43,11 @@ jobs:
             python-version: "3.11"
           - os: ubuntu-latest
             python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
           - os: windows-latest
+            python-version: "3.12"
+          - os: macos-latest
             python-version: "3.12"
 
     steps:
@@ -63,7 +67,7 @@ jobs:
           pip install -e ".[all]"
 
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests examples scripts
 
       # -rs prints the reason for every skipped test in the summary, so a skip is always
       # visible in the log rather than folded into a count.
