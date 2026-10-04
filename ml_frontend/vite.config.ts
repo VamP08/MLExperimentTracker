@@ -1,16 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
-/**
- * Where the demo is served from.
- *
- * The demo is deployed as a Render static site, which serves from the root of its own
- * subdomain, so it needs no path prefix. Kept as a named constant because a host that
- * publishes under a subpath (GitHub Pages does: `https://<user>.github.io/<repo>/`) needs
- * this and the router's `basename` changed together, and they are easy to change apart.
- */
-const DEMO_BASE = '/'
-
 /** The `<title>` in index.html, and what the demo build replaces it with. */
 const TITLE = '<title>MLExperimentTracker</title>'
 const DEMO_TITLE = '<title>MLExperimentTracker — static demo</title>'
@@ -38,22 +28,7 @@ const LINK_PREVIEW = [
   `<meta name="theme-color" content="#07090d" />`,
 ].join('\n    ')
 
-/**
- * The two things the demo build needs that the normal build must not have.
- *
- * 1. `404.html`. GitHub Pages has no SPA rewrite. A deep link such as
- *    `/MLExperimentTracker/runs/abc` is a request for a file that does not exist, and
- *    Pages answers it with its own 404 page — so the app never loads and the client
- *    router never gets the chance to handle the URL. Serving the app's own HTML as
- *    `404.html` hands the request back to the router instead. This is the reason the
- *    router's `basename` has to match `base`: the router receives the full path.
- *
- * 2. A title that says "demo". The banner in the page says it too, but the banner is
- *    dismissible and the tab label is not. The link-preview tags ride in beside it.
- *
- * Both are derived from the real build output rather than written by hand, so they cannot
- * drift from index.html.
- */
+// The tab says "demo" because the banner can be dismissed and the tab label can't.
 function demoBuild(): Plugin {
   return {
     name: 'mlexp-demo-build',
@@ -71,16 +46,6 @@ function demoBuild(): Plugin {
         }
         return html.replace(TITLE, `${DEMO_TITLE}\n    ${LINK_PREVIEW}`)
       },
-    },
-
-    generateBundle(_options, bundle) {
-      const index = bundle['index.html']
-      if (!index || index.type !== 'asset') {
-        // Loudly, because the failure it prevents is invisible on the landing page and
-        // hits every refresh of a sub-route.
-        throw new Error('index.html was not emitted, so 404.html cannot be derived from it')
-      }
-      this.emitFile({ type: 'asset', fileName: '404.html', source: index.source })
     },
   }
 }
@@ -132,7 +97,6 @@ export default defineConfig(({ mode }) => {
   const isDemo = mode === 'demo'
 
   return {
-    base: isDemo ? DEMO_BASE : '/',
     plugins: isDemo ? [react(), demoBuild()] : [react(), dropDemoOnlyStyles()],
     server: {
       // Force polling so HMR never goes quiet

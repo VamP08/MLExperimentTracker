@@ -34,7 +34,7 @@ const RunsWrapper = () => {
 
 function App() {
   return (
-    // BASE_URL comes from `base` in vite.config.ts ("/" for both builds today).
+    // BASE_URL is Vite's `base`, so the router follows it if the app moves under a subpath.
     <Router basename={import.meta.env.BASE_URL}>
       <ScrollReset />
       <div className="app">
