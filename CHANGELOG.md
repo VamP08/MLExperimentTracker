@@ -12,6 +12,22 @@ two move at different speeds. Both are listed below.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-04
+
+Storage format unchanged (1.2).
+
+### Security
+
+- The bundled dashboard is built on react-router 7.18.4. The 0.2.0 wheel shipped 7.6.0, which
+  has published advisories, most of them for server rendering, which this app does not use.
+
+### Added
+
+- App icons (192, 512, maskable, apple-touch) and a web manifest; the mark appears in the top
+  bar when the sidebar folds into a drawer.
+- The README opens with the logo, and shows an architecture diagram and the verify checks.
+- CI also tests Python 3.13 and macOS, the versions and platform the package metadata claims.
+
 ### Changed
 
 - Listing runs is about 40% faster. The path containment check now skips a full `resolve()`
@@ -164,6 +180,7 @@ Stated here rather than left to be discovered:
 - `uncommitted.patch` is a diff of your working tree and should be treated as sensitive.
   Pass `capture_diff=False` for a tree you would not paste into a chat window.
 
-[Unreleased]: https://github.com/VamP08/MLExperimentTracker/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/VamP08/MLExperimentTracker/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/VamP08/MLExperimentTracker/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/VamP08/MLExperimentTracker/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/VamP08/MLExperimentTracker/releases/tag/v0.1.0
