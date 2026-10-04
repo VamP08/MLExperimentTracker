@@ -160,8 +160,8 @@ component, and anything else returns 404.
 `mlexp ui` takes `--host`, `--port`, `--storage` and `--no-browser`.
 
 The server binds to localhost and has no authentication, because it's a single-user local
-tool. Don't expose it on a network without putting auth in front of it: four endpoints
-write to disk.
+tool. Don't expose it on a network without putting auth in front of it: the three PATCH
+endpoints write to disk.
 
 ## Development
 
