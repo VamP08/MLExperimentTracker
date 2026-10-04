@@ -84,10 +84,6 @@ all = [
 [project.scripts]
 mlexp = "mlexperimenttracker.cli:main"
 
-# Every URL here resolves today. A `Documentation` entry is deliberately absent: the
-# engineering notes live in a separate private repository, so a documentation link would be
-# dead for everyone reading the PyPI page.
-#
 # This table sits after every key of `[project]` on purpose. TOML gives a table everything
 # that follows it, so putting `[project.urls]` above `dependencies = []` silently makes the
 # dependency list a URL entry — which is exactly what happened once here.

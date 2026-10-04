@@ -1,5 +1,3 @@
-# Engineering notes are kept in a separate private repository.
-# Remove this line if you want them published with the code.
 /docs/
 
 # Dependencies
@@ -9,22 +7,11 @@ node_modules/
 dist/
 build/
 
-# The built dashboard, produced by scripts/build_ui.py. It is packaged into the wheel and
-# the sdist as a build artifact (see pyproject.toml) rather than committed, because a
-# checked-in bundle goes stale against the source it was built from without saying so.
+# Built by scripts/build_ui.py and shipped as a wheel artifact; a committed bundle goes stale.
 /src/mlexperimenttracker/server/static/
 
-# The static demo's recorded API responses live at ml_frontend/src/demo/snapshot.json and
-# are deliberately NOT ignored, even though they are generated. Rollup resolves that import
-# while building the normal bundle — it drops the module afterwards, but it must be able to
-# read it first — so ignoring the path breaks `npm run build` on a fresh clone, and the
-# normal build is the one that ships in the wheel.
-#
-# What is committed there is an empty placeholder, not a capture: no runs, no metrics,
-# `"source": "not captured yet"`. So the objection that a committed capture keeps answering
-# for an API that no longer exists does not apply — there is nothing in it to go stale.
-# scripts/build_demo_snapshot.py overwrites it locally and in the Render build; the
-# resulting ~540 KiB file is a build artifact and is not meant to be committed.
+# ml_frontend/src/demo/snapshot.json stays tracked as an empty placeholder because the
+# normal build imports it; don't commit the capture build_demo_snapshot.py writes over it.
 
 # Python
 __pycache__/
