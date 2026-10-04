@@ -50,7 +50,7 @@ Storage format unchanged (1.2).
 - The 0.1.0 notes below say CI had never run. It has run on every push since the
   repository went public.
 
-## [0.1.0] — 2026-08-13
+## [0.1.0] - 2026-08-13
 
 First release. Storage format **1.2**.
 
